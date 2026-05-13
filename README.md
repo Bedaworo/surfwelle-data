@@ -53,27 +53,79 @@ Der Cron-Job läuft alle 15 Minuten von alleine. GitHub Actions ist auf
 öffentlichen Repos kostenlos, auf privaten gibt's 2.000 Freiminuten/Monat
 — ein Lauf braucht ~30 Sekunden, also ~25 Stunden/Monat, locker drin.
 
-## Manuelle Surfwellen-Daten einspielen
+## Datenstruktur
 
-In `data/` eine zweite CSV `surfwelle_manual.csv` mit folgenden Spalten:
+Im Ordner `data/` liegen drei CSV-Dateien mit klarer Aufgabenteilung:
 
+| Datei | Wer pflegt | Inhalt |
+|---|---|---|
+| `collected.csv` | Bot, alle 15 Min | Türkheim, Oberhausen, Wetter |
+| `surfwelle_manual.csv` | Mensch, alle 1-2 Wochen | Pegel der Surfwelle aus dem HTML |
+| `events.csv` | Mensch, bei Bedarf | Bachablässe, Wehrsteuerungen, Bauarbeiten |
+
+Die strikte Trennung verhindert, dass der Bot beim nächsten Commit
+manuelle Änderungen überschreibt oder Git-Konflikte produziert. Bei der
+späteren Analyse werden die Dateien einfach über die Zeitstempel
+zusammengejoint.
+
+## Manuelle Datenpflege
+
+### Events (`data/events.csv`)
+
+Format:
+
+```csv
+time,event,note
+2026-05-11T12:30:00+02:00,bachablass_ende,Wehr nach Wartung geöffnet
+2026-05-13T18:30:00+02:00,wehrsteuerung,Pegel sinkt sichtbar
+2026-05-20T08:00:00+02:00,bachablass_start,zweiwöchige Wartung angekündigt
 ```
-time,percent,temperature_c
-2026-05-13T21:49:52+02:00,11.7,12
+
+Wenn die `note` ein Komma enthält, muss sie in Anführungszeichen:
+
+```csv
+2026-05-25T14:00:00+02:00,beobachtung,"starker Regen, Pegel +30%"
 ```
 
-Die Rohdaten kannst du aus dem HTML-Code der Vereins-Website extrahieren —
-sie stehen dort als JSON im `<script id="historical-swell-data">`-Tag.
-Ein kleines Hilfsskript dazu kannst du dir bei Bedarf später bauen lassen.
+Sinnvolle Werte für `event` (können aber auch frei vergeben werden):
+- `bachablass_start` / `bachablass_ende`
+- `wehrsteuerung` — wenn das Wehr sichtbar bedient wurde
+- `wartung` — Bauarbeiten am Bach
+- `beobachtung` — alles andere was auffällt
+
+Eintragen am einfachsten direkt auf GitHub: `data/events.csv` öffnen →
+Stift-Symbol (Edit) → Zeile anhängen → Commit.
+
+### Surfwellen-Pegel (`data/surfwelle_manual.csv`)
+
+Format:
+
+```csv
+time,percent
+2026-05-04T09:34:53+02:00,7.5
+2026-05-04T09:39:52+02:00,6.9
+```
+
+Die Rohdaten stehen im HTML der Vereins-Website
+([surfwelleaugsburg.de](https://surfwelleaugsburg.de)) als JSON-Block im
+`<script id="historical-swell-data" type="application/json">`-Tag. Alle
+paar Tage / Wochen:
+
+1. HTML-Code der Pegelstand-Seite speichern (Browser → "Seitenquelltext
+   anzeigen" → alles kopieren)
+2. JSON-Block extrahieren und in CSV umwandeln — am einfachsten über
+   Claude: "Hier ist der HTML-Code, mach mir eine CSV draus."
+3. Die fertige CSV auf GitHub hochladen und die bestehende ersetzen
 
 ## Daten anschauen
 
-Alle Daten landen in `data/collected.csv`. Mit pandas analysierbar:
+Alle Daten landen in `data/*.csv`. Mit pandas analysierbar:
 
 ```python
 import pandas as pd
-df = pd.read_csv("data/collected.csv", parse_dates=["collected_at"])
-print(df.tail())
+collected = pd.read_csv("data/collected.csv", parse_dates=["collected_at"])
+surfwelle = pd.read_csv("data/surfwelle_manual.csv", parse_dates=["time"])
+events = pd.read_csv("data/events.csv", parse_dates=["time"])
 ```
 
 ## Robustheit
@@ -87,8 +139,8 @@ Hinweise zu Lücken:
 - GitHub Actions hat keine harte Garantie für 15-Minuten-Pünktlichkeit;
   bei hoher Plattform-Last können einzelne Läufe um 5-10 Minuten verspätet
   oder gelegentlich gar nicht starten.
-- HND-Werte sind 15-Minuten-Werte; wir scrapen jedes Mal die Tabelle und
-  bekommen damit immer den neuesten verfügbaren Wert. Identische
+- HND-Werte sind 15-Minuten-Werte; das Skript scrapt jedes Mal die Tabelle
+  und bekommt damit immer den neuesten verfügbaren Wert. Identische
   Zeitstempel in Folge sind normal und kein Fehler.
 - Open-Meteo aktualisiert die DWD-Beobachtungen einmal pro Stunde — also
   4 von 4 Läufen pro Stunde sehen denselben Niederschlagswert.

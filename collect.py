@@ -1,14 +1,21 @@
 """
 Sammelt alle 15 Minuten Daten zu:
 - HND Pegel Türkheim (Wertach) — Abfluss
+- HND Pegel Biessenhofen (Wertach) — Abfluss + Wasserstand [NEU]
 - HND Pegel Augsburg-Oberhausen (Wertach) — Wasserstand und Abfluss
-- Open-Meteo (DWD-basiert): Niederschlag in Kempten, Marktoberdorf und Augsburg
-  sowie Niederschlags-Vorhersage 24h für Kempten
+- HND Grüntensee Seepegel — Wasserstand [NEU]
+- Open-Meteo (DWD-basiert): Niederschlag in Oberjoch [NEU], Kaufbeuren [NEU],
+  Kempten, Marktoberdorf und Augsburg
+- Open-Meteo: Temperatur in Kempten + Oberjoch [NEU] (Schneeschmelze)
+- Open-Meteo: Niederschlags-Vorhersage Kempten + Oberjoch [NEU]
 
 Jeder Lauf hängt eine Zeile an data/collected.csv an.
 
 Defensiv: Wenn eine Quelle ausfällt, wird für deren Spalten None geschrieben,
 aber die Zeile wird trotzdem gespeichert. Fehler werden klar geloggt.
+
+Alle bisherigen Spalten bleiben unverändert für Daten-Kontinuität.
+Neue Spalten kommen ans Ende.
 """
 
 from __future__ import annotations
@@ -38,8 +45,9 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.1 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.2 (research project)"
 
+# HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
     "https://www.hnd.bayern.de/pegel/iller_lech/tuerkheim-12406008/tabelle"
     "?methode=abfluss&setdiskr=15"
@@ -52,11 +60,35 @@ HND_OBERHAUSEN_W_URL = (
     "https://www.hnd.bayern.de/pegel/donau_bis_kelheim/augsburg-oberhausen-12407000/tabelle"
     "?methode=wasserstand&setdiskr=15"
 )
+# NEU: Biessenhofen — sitzt ~50 km nach Grüntensee, ~38 km vor Türkheim
+HND_BIESSENHOFEN_Q_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/biessenhofen-12405005/tabelle"
+    "?methode=abfluss&setdiskr=15"
+)
+HND_BIESSENHOFEN_W_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/biessenhofen-12405005/tabelle"
+    "?methode=wasserstand&setdiskr=15"
+)
+# NEU: Grüntensee Seepegel — der große Stausee am Anfang der Wertach
+HND_GRUENTENSEE_URL = (
+    "https://www.hnd.bayern.de/speicher/iller_lech/gruentensee-seepegel-12403000/tabelle"
+    "?methode=seewasserstand&setdiskr=15"
+)
 
+# Wetterstationen (Lat/Lon)
+# Bestehende:
+#   Kempten: war im Iller-EZG (falsche Region), bleibt für Kontinuität
+#   Marktoberdorf: Mittellauf-Region, bleibt
+#   Augsburg: Lokaleinfluss Senkelbach, bleibt
+# Neue:
+#   Oberjoch: 1180m, direkt am Wertach-Quellgebiet
+#   Kaufbeuren: Mittellauf, kurz vor Türkheim
 LOCATIONS = {
     "kempten":       (47.7333, 10.3167),
     "marktoberdorf": (47.7800, 10.6167),
     "augsburg":      (48.3667, 10.8833),
+    "oberjoch":      (47.5159, 10.4058),  # NEU
+    "kaufbeuren":    (47.8812, 10.6246),  # NEU
 }
 
 
@@ -67,8 +99,14 @@ LOCATIONS = {
 
 @dataclass
 class Sample:
+    """
+    Reihenfolge der Felder = Reihenfolge der CSV-Spalten.
+    NEUE Felder bitte am Ende anhängen, um Kompatibilität mit
+    bestehenden CSVs zu wahren.
+    """
     collected_at: str = ""
 
+    # Bestehende HND-Felder
     tuerkheim_q_m3s: Optional[float] = None
     tuerkheim_time: Optional[str] = None
     oberhausen_q_m3s: Optional[float] = None
@@ -76,6 +114,7 @@ class Sample:
     oberhausen_w_cm: Optional[float] = None
     oberhausen_w_time: Optional[str] = None
 
+    # Bestehende Wetter-Felder
     rain_kempten_mm: Optional[float] = None
     rain_marktoberdorf_mm: Optional[float] = None
     rain_augsburg_mm: Optional[float] = None
@@ -83,6 +122,22 @@ class Sample:
 
     forecast_rain_kempten_24h_mm: Optional[float] = None
     forecast_rain_kempten_6h_mm: Optional[float] = None
+
+    # NEUE Felder ab v1.2
+    biessenhofen_q_m3s: Optional[float] = None
+    biessenhofen_q_time: Optional[str] = None
+    biessenhofen_w_cm: Optional[float] = None
+    biessenhofen_w_time: Optional[str] = None
+
+    gruentensee_w_mnn: Optional[float] = None  # Meter über NN, NICHT cm
+    gruentensee_w_time: Optional[str] = None
+
+    rain_oberjoch_mm: Optional[float] = None
+    rain_kaufbeuren_mm: Optional[float] = None
+    temp_oberjoch_c: Optional[float] = None
+
+    forecast_rain_oberjoch_24h_mm: Optional[float] = None
+    forecast_rain_oberjoch_6h_mm: Optional[float] = None
 
 
 # -----------------------------------------------------------------------------
@@ -130,12 +185,10 @@ def fetch_hnd(url: str, label: str) -> Optional[tuple[str, float]]:
         log.warning("HND %s — keine passende Tabelle gefunden", label)
         return None
 
-    # Erste Zeile = neuester Wert
     timestamp_str = str(df.iloc[0, 0]).strip()
     raw_value = df.iloc[0, 1]
 
     try:
-        # pandas hat decimal="," schon angewendet → Wert sollte float sein
         if isinstance(raw_value, str):
             value = float(raw_value.replace(",", "."))
         else:
@@ -241,16 +294,67 @@ def fetch_openmeteo_forecast(lat: float, lon: float, label: str) -> dict:
 
 
 def append_sample(sample: Sample) -> None:
+    """
+    Hängt einen Datenpunkt an die CSV an.
+    Header wird nur geschrieben wenn Datei neu ist; sonst bleibt der
+    bestehende Header und neue Spalten werden einfach unten leer
+    angefügt (verträgt sich mit pandas-Einlesen, bestehender Header
+    bleibt bis zur manuellen CSV-Migration unverändert).
+    """
     CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
     new_file = not CSV_PATH.exists()
 
     row = asdict(sample)
+    fieldnames = list(row.keys())
+
+    if not new_file:
+        # Bestehende CSV: prüfen ob neue Spalten dazugekommen sind
+        with open(CSV_PATH, encoding="utf-8") as f:
+            existing_header = f.readline().strip().split(",")
+        if existing_header != fieldnames:
+            log.info("Neue Spalten erkannt — migriere CSV-Header")
+            _migrate_csv_header(fieldnames, existing_header)
+
     with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         if new_file:
             writer.writeheader()
         writer.writerow(row)
     log.info("Geschrieben in %s", CSV_PATH)
+
+
+def _migrate_csv_header(new_fields: list[str], old_fields: list[str]) -> None:
+    """
+    Wenn neue Felder dazukommen, wird die CSV einmalig umgeschrieben:
+    Header bekommt die neuen Spalten angehängt, alte Zeilen bekommen
+    leere Werte für die neuen Spalten. Nur additiv — bestehende Spalten
+    werden nie entfernt oder umsortiert.
+    """
+    # Prüfe: sind die alten Felder alle Präfix der neuen?
+    if old_fields != new_fields[:len(old_fields)]:
+        log.warning(
+            "CSV-Header weicht ab — neue Felder werden NICHT automatisch migriert. "
+            "Alte Header: %s, neue: %s",
+            old_fields, new_fields,
+        )
+        return
+
+    added_fields = new_fields[len(old_fields):]
+    log.info("Füge %d neue Spalten an: %s", len(added_fields), added_fields)
+
+    # Datei einlesen und mit erweitertem Header neu schreiben
+    with open(CSV_PATH, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=new_fields)
+        writer.writeheader()
+        for row in rows:
+            # Alte Zeilen: neue Felder bleiben leer
+            for field in added_fields:
+                row[field] = ""
+            writer.writerow(row)
 
 
 # -----------------------------------------------------------------------------
@@ -261,6 +365,7 @@ def append_sample(sample: Sample) -> None:
 def collect() -> Sample:
     sample = Sample(collected_at=datetime.now(timezone.utc).isoformat())
 
+    # Bestehende HND-Pegel
     if r := fetch_hnd(HND_TUERKHEIM_URL, "Türkheim Q"):
         sample.tuerkheim_time, sample.tuerkheim_q_m3s = r
     if r := fetch_hnd(HND_OBERHAUSEN_Q_URL, "Oberhausen Q"):
@@ -268,6 +373,17 @@ def collect() -> Sample:
     if r := fetch_hnd(HND_OBERHAUSEN_W_URL, "Oberhausen W"):
         sample.oberhausen_w_time, sample.oberhausen_w_cm = r
 
+    # NEU: Biessenhofen
+    if r := fetch_hnd(HND_BIESSENHOFEN_Q_URL, "Biessenhofen Q"):
+        sample.biessenhofen_q_time, sample.biessenhofen_q_m3s = r
+    if r := fetch_hnd(HND_BIESSENHOFEN_W_URL, "Biessenhofen W"):
+        sample.biessenhofen_w_time, sample.biessenhofen_w_cm = r
+
+    # NEU: Grüntensee Seepegel
+    if r := fetch_hnd(HND_GRUENTENSEE_URL, "Grüntensee W"):
+        sample.gruentensee_w_time, sample.gruentensee_w_mnn = r
+
+    # Open-Meteo: aktuelle Beobachtungen
     for name, (lat, lon) in LOCATIONS.items():
         current = fetch_openmeteo_current(lat, lon, name)
         if current:
@@ -276,11 +392,19 @@ def collect() -> Sample:
                 setattr(sample, f"rain_{name}_mm", precip)
             if name == "kempten":
                 sample.temp_kempten_c = current.get("temperature_2m")
+            elif name == "oberjoch":  # NEU
+                sample.temp_oberjoch_c = current.get("temperature_2m")
 
-    forecast = fetch_openmeteo_forecast(*LOCATIONS["kempten"], "kempten")
-    if forecast:
-        sample.forecast_rain_kempten_6h_mm = forecast.get("next_6h")
-        sample.forecast_rain_kempten_24h_mm = forecast.get("next_24h")
+    # Open-Meteo Forecast: für Kempten (bestehend) und Oberjoch (NEU)
+    forecast_kempten = fetch_openmeteo_forecast(*LOCATIONS["kempten"], "kempten")
+    if forecast_kempten:
+        sample.forecast_rain_kempten_6h_mm = forecast_kempten.get("next_6h")
+        sample.forecast_rain_kempten_24h_mm = forecast_kempten.get("next_24h")
+
+    forecast_oberjoch = fetch_openmeteo_forecast(*LOCATIONS["oberjoch"], "oberjoch")
+    if forecast_oberjoch:
+        sample.forecast_rain_oberjoch_6h_mm = forecast_oberjoch.get("next_6h")
+        sample.forecast_rain_oberjoch_24h_mm = forecast_oberjoch.get("next_24h")
 
     return sample
 

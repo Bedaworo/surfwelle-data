@@ -1,20 +1,32 @@
 # Surfwelle Augsburg — Datensammler
 
 Sammelt automatisch alle 15 Minuten Pegel- und Wetterdaten rund um die
-Surfwelle am Senkelbach in Augsburg, um später eine Pegel-Prognose bauen
-zu können.
+Surfwelle am Senkelbach in Augsburg, um eine Pegel-Prognose zu bauen.
 
 ## Was wird gesammelt
 
-| Quelle | Daten | Intervall |
-|---|---|---|
-| HND Bayern | Pegel Türkheim / Wertach: Abfluss (m³/s) | 15 min |
-| HND Bayern | Pegel Augsburg-Oberhausen / Wertach: Abfluss (m³/s) und Wasserstand (cm) | 15 min |
-| Open-Meteo (DWD) | Niederschlag letzte Stunde in Kempten, Marktoberdorf, Augsburg | stündlich |
-| Open-Meteo (DWD) | Temperatur in Kempten (Schneeschmelze) | stündlich |
-| Open-Meteo (DWD) | Niederschlag-Vorhersage Kempten für nächste 6h und 24h | stündlich |
+### Pegelkette Wertach (von Quelle bis Augsburg)
 
-Manuell ergänzt werden:
+| Quelle | Daten | Fluss-km | Bedeutung |
+|---|---|---|---|
+| HND Bayern | Grüntensee Seepegel — Wasserstand (m ü. NN) | ~130 | Pufferspeicher am Anfang |
+| HND Bayern | Biessenhofen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~80 | Nach Speicher, vor Mittellauf |
+| HND Bayern | Türkheim / Wertach — Abfluss (m³/s) | ~42 | Hauptsignal kurz vor Augsburg |
+| HND Bayern | Augsburg-Oberhausen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~3 | Nach Wertachkanal-Abzweig |
+
+### Wetter (DWD-Daten via Open-Meteo)
+
+| Station | Messwerte | Bedeutung |
+|---|---|---|
+| Oberjoch (1180m) | Niederschlag + Temperatur + Forecast | Wertach-Quellgebiet, Schneeschmelze |
+| Kaufbeuren | Niederschlag | Mittellauf, Zwischengebiet |
+| Marktoberdorf | Niederschlag | Mittellauf |
+| Kempten | Niederschlag + Temperatur + Forecast | Allgäu-Großwetter (Iller-Tal) |
+| Augsburg | Niederschlag | Lokaler Einfluss Senkelbach |
+
+Alle 15 Minuten ein Lauf, ein Datenpunkt pro Lauf in `data/collected.csv`.
+
+### Manuell ergänzt
 
 - Pegelstand der Surfwelle aus `surfwelleaugsburg.de` (alle paar Tage)
 - Notizen zu Events (Bachablass, Wehrsteuerung, Wartung)
@@ -59,7 +71,7 @@ Im Ordner `data/` liegen drei CSV-Dateien mit klarer Aufgabenteilung:
 
 | Datei | Wer pflegt | Inhalt |
 |---|---|---|
-| `collected.csv` | Bot, alle 15 Min | Türkheim, Oberhausen, Wetter |
+| `collected.csv` | Bot, alle 15 Min | Pegel, Stausee, Wetter (24 Spalten) |
 | `surfwelle_manual.csv` | Mensch, alle 1-2 Wochen | Pegel der Surfwelle aus dem HTML |
 | `events.csv` | Mensch, bei Bedarf | Bachablässe, Wehrsteuerungen, Bauarbeiten |
 
@@ -67,6 +79,13 @@ Die strikte Trennung verhindert, dass der Bot beim nächsten Commit
 manuelle Änderungen überschreibt oder Git-Konflikte produziert. Bei der
 späteren Analyse werden die Dateien einfach über die Zeitstempel
 zusammengejoint.
+
+### Spalten in `collected.csv`
+
+Die ersten 13 Spalten sind Bestandsdaten (Skript-Version 1.x), die ab
+Spalte 14 sind Erweiterungen aus Version 1.2. Das Skript migriert die
+CSV automatisch beim ersten Lauf nach einem Update: alte Zeilen bekommen
+leere Werte für die neuen Spalten, niemand muss von Hand eingreifen.
 
 ## Manuelle Datenpflege
 
@@ -106,15 +125,15 @@ time,percent
 2026-05-04T09:39:52+02:00,6.9
 ```
 
-Die Rohdaten stehen im HTML der Vereins-Website
-([surfwelleaugsburg.de](https://surfwelleaugsburg.de)) als JSON-Block im
-`<script id="historical-swell-data" type="application/json">`-Tag. Alle
-paar Tage / Wochen:
+Die Rohdaten stehen im HTML der Vereins-Buchungsseite
+(`buchung.surfwelleaugsburg.de/swell/`) als JSON-Block im
+`<script id="historical-swell-data" type="application/json">`-Tag.
+Alle paar Tage / Wochen:
 
-1. HTML-Code der Pegelstand-Seite speichern (Browser → "Seitenquelltext
-   anzeigen" → alles kopieren)
+1. Pegelstand-Seite (`/swell/`) im Browser öffnen und als HTML speichern
 2. JSON-Block extrahieren und in CSV umwandeln — am einfachsten über
-   Claude: "Hier ist der HTML-Code, mach mir eine CSV draus."
+   das mitgelieferte `convert_surfwelle.py` (Doppelklick auf
+   `Surfwelle_aktualisieren.bat` unter Windows)
 3. Die fertige CSV auf GitHub hochladen und die bestehende ersetzen
 
 ## Daten anschauen
@@ -144,3 +163,11 @@ Hinweise zu Lücken:
   Zeitstempel in Folge sind normal und kein Fehler.
 - Open-Meteo aktualisiert die DWD-Beobachtungen einmal pro Stunde — also
   4 von 4 Läufen pro Stunde sehen denselben Niederschlagswert.
+
+## Erweiterung des Skripts
+
+Neue Datenquellen können am Ende der `Sample`-Dataclass in `collect.py`
+ergänzt werden. Das Skript erkennt das beim nächsten Lauf automatisch und
+migriert die CSV (neue Spalten werden hinten angehängt, alte Zeilen
+bekommen leere Werte). Bestehende Spalten dürfen nicht umsortiert oder
+umbenannt werden, sonst greift die Auto-Migration nicht.

@@ -2,9 +2,15 @@ name: Collect water data
 
 on:
   schedule:
-    # Alle 15 Minuten. GitHub Actions löst auf 5-Minuten-Granularität auf,
-    # die echte Ausführung kann sich aber bei Lastspitzen um 5-10 Minuten verzögern.
-    - cron: '*/15 * * * *'
+    # Explizite Zeitpunkte statt */15 — wird von GitHub Actions zuverlässiger
+    # ausgeführt. */15 wird oft als "alle 15 Min, kann skipped werden" interpretiert.
+    # Mit expliziten Zeiten werden mehr Läufe tatsächlich ausgeführt.
+    # GitHub Actions garantiert grundsätzlich keine pünktlichen Schedule-Jobs;
+    # auf Free Tier können trotzdem Läufe übersprungen werden.
+    - cron: '0 * * * *'
+    - cron: '15 * * * *'
+    - cron: '30 * * * *'
+    - cron: '45 * * * *'
   workflow_dispatch:  # manueller Trigger über die UI
 
 permissions:

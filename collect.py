@@ -74,6 +74,18 @@ HND_GRUENTENSEE_URL = (
     "https://www.hnd.bayern.de/speicher/iller_lech/gruentensee-seepegel-12403000/tabelle"
     "?methode=seewasserstand&setdiskr=15"
 )
+# NEU v1.3: Singold (Pegel Langerringen) — laut Wikipedia mündet die Singold
+# über den ausgeleiteten Kanal "Senkelbach" in Göggingen in die Wertach.
+# Das heißt: Singold-Wasser landet möglicherweise direkt am Surfwellen-Bach,
+# ohne Umweg über das Ackermannwehr. EZG 101 km², MQ 2.5 m³/s.
+HND_SINGOLD_Q_URL = (
+    "https://www.hnd.bayern.de/pegel/donau_bis_kelheim/langerringen-12483009/tabelle"
+    "?methode=abfluss&setdiskr=15"
+)
+HND_SINGOLD_W_URL = (
+    "https://www.hnd.bayern.de/pegel/donau_bis_kelheim/langerringen-12483009/tabelle"
+    "?methode=wasserstand&setdiskr=15"
+)
 
 # Wetterstationen (Lat/Lon)
 # Bestehende:
@@ -87,8 +99,9 @@ LOCATIONS = {
     "kempten":       (47.7333, 10.3167),
     "marktoberdorf": (47.7800, 10.6167),
     "augsburg":      (48.3667, 10.8833),
-    "oberjoch":      (47.5159, 10.4058),  # NEU
-    "kaufbeuren":    (47.8812, 10.6246),  # NEU
+    "oberjoch":      (47.5159, 10.4058),  # NEU v1.2
+    "kaufbeuren":    (47.8812, 10.6246),  # NEU v1.2
+    "bobingen":      (48.2700, 10.8300),  # NEU v1.3: Singold/Wertach-Mündungsbereich
 }
 
 
@@ -138,6 +151,14 @@ class Sample:
 
     forecast_rain_oberjoch_24h_mm: Optional[float] = None
     forecast_rain_oberjoch_6h_mm: Optional[float] = None
+
+    # NEUE Felder ab v1.3 — Singold ist Hauptzufluss des Senkelbachs (laut Wikipedia)
+    singold_q_m3s: Optional[float] = None
+    singold_q_time: Optional[str] = None
+    singold_w_cm: Optional[float] = None
+    singold_w_time: Optional[str] = None
+
+    rain_bobingen_mm: Optional[float] = None
 
 
 # -----------------------------------------------------------------------------
@@ -382,6 +403,13 @@ def collect() -> Sample:
     # NEU: Grüntensee Seepegel
     if r := fetch_hnd(HND_GRUENTENSEE_URL, "Grüntensee W"):
         sample.gruentensee_w_time, sample.gruentensee_w_mnn = r
+
+    # NEU v1.3: Singold (Pegel Langerringen) — wichtiger Direkt-Zubringer
+    # zum Senkelbach via "Singold-Senkelbach"-Überleitung
+    if r := fetch_hnd(HND_SINGOLD_Q_URL, "Singold Q"):
+        sample.singold_q_time, sample.singold_q_m3s = r
+    if r := fetch_hnd(HND_SINGOLD_W_URL, "Singold W"):
+        sample.singold_w_time, sample.singold_w_cm = r
 
     # Open-Meteo: aktuelle Beobachtungen
     for name, (lat, lon) in LOCATIONS.items():

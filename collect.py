@@ -1,13 +1,15 @@
 """
 Sammelt alle 15 Minuten Daten zu:
 - HND Pegel Türkheim (Wertach) — Abfluss
-- HND Pegel Biessenhofen (Wertach) — Abfluss + Wasserstand [NEU]
+- HND Pegel Biessenhofen (Wertach) — Abfluss + Wasserstand
 - HND Pegel Augsburg-Oberhausen (Wertach) — Wasserstand und Abfluss
-- HND Grüntensee Seepegel — Wasserstand [NEU]
-- Open-Meteo (DWD-basiert): Niederschlag in Oberjoch [NEU], Kaufbeuren [NEU],
-  Kempten, Marktoberdorf und Augsburg
-- Open-Meteo: Temperatur in Kempten + Oberjoch [NEU] (Schneeschmelze)
-- Open-Meteo: Niederschlags-Vorhersage Kempten + Oberjoch [NEU]
+- HND Grüntensee Seepegel — Wasserstand
+- HND Singold-Pegel Langerringen — Abfluss + Wasserstand [v1.3]
+- HND Regenstationen Hindelang-Unterjoch, Buchloe, Schwabmünchen [v1.4]
+- Open-Meteo (DWD-basiert): Niederschlag in Oberjoch, Kaufbeuren, Kempten,
+  Marktoberdorf, Augsburg, Bobingen
+- Open-Meteo: Temperatur in Kempten + Oberjoch (Schneeschmelze)
+- Open-Meteo: Niederschlags-Vorhersage Kempten + Oberjoch
 
 Jeder Lauf hängt eine Zeile an data/collected.csv an.
 
@@ -15,7 +17,7 @@ Defensiv: Wenn eine Quelle ausfällt, wird für deren Spalten None geschrieben,
 aber die Zeile wird trotzdem gespeichert. Fehler werden klar geloggt.
 
 Alle bisherigen Spalten bleiben unverändert für Daten-Kontinuität.
-Neue Spalten kommen ans Ende.
+Neue Spalten kommen ans Ende und werden per Auto-Migration angefügt.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.2 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.4 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
@@ -85,6 +87,25 @@ HND_SINGOLD_Q_URL = (
 HND_SINGOLD_W_URL = (
     "https://www.hnd.bayern.de/pegel/donau_bis_kelheim/langerringen-12483009/tabelle"
     "?methode=wasserstand&setdiskr=15"
+)
+
+# NEU v1.4: HND-Niederschlagsstationen (DWD-Regenmesser, 5-Min-Auflösung).
+# Open-Meteo unterschätzt lokale Schauer im Wertach-EZG dramatisch — HND-Bodendaten
+# sind erheblich genauer. Wir wählen drei Stationen die alle südlich Augsburgs
+# liegen und das gesamte Wertach-Einzugsgebiet abdecken:
+# - Hindelang-Unterjoch: Wertach-Quellgebiet (~1015m)
+# - Buchloe: Gennach-EZG, direkt südlich Türkheim
+# - Schwabmünchen: Wertach-Tal zwischen Türkheim und Augsburg
+# Die Werte sind Niederschlagssummen in mm zum jeweiligen Zeitstempel.
+HND_RAIN_HINDELANG_URL = (
+    "https://www.hnd.bayern.de/niederschlag/iller_lech/"
+    "hindelang-unterjoch-untergschwend-2222/tabelle"
+)
+HND_RAIN_BUCHLOE_URL = (
+    "https://www.hnd.bayern.de/niederschlag/iller_lech/buchloe-2387/tabelle"
+)
+HND_RAIN_SCHWABMUENCHEN_URL = (
+    "https://www.hnd.bayern.de/niederschlag/iller_lech/schwabmuenchen-4579/tabelle"
 )
 
 # Wetterstationen (Lat/Lon)
@@ -159,6 +180,16 @@ class Sample:
     singold_w_time: Optional[str] = None
 
     rain_bobingen_mm: Optional[float] = None
+
+    # NEUE Felder ab v1.4 — HND-Regenmessungen (direkte DWD-Bodenmessungen)
+    # Diese Werte sind Niederschlagssummen zum Zeitstempel; das genaue
+    # Aggregations-Intervall hängt von der Station ab (typisch 5 Min).
+    hnd_rain_hindelang_mm: Optional[float] = None
+    hnd_rain_hindelang_time: Optional[str] = None
+    hnd_rain_buchloe_mm: Optional[float] = None
+    hnd_rain_buchloe_time: Optional[str] = None
+    hnd_rain_schwabmuenchen_mm: Optional[float] = None
+    hnd_rain_schwabmuenchen_time: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
@@ -410,6 +441,15 @@ def collect() -> Sample:
         sample.singold_q_time, sample.singold_q_m3s = r
     if r := fetch_hnd(HND_SINGOLD_W_URL, "Singold W"):
         sample.singold_w_time, sample.singold_w_cm = r
+
+    # NEU v1.4: HND-Regenstationen (direkte DWD-Bodenmessungen)
+    # Diese sind erheblich genauer als Open-Meteo-Gridwerte für lokale Schauer
+    if r := fetch_hnd(HND_RAIN_HINDELANG_URL, "Regen Hindelang"):
+        sample.hnd_rain_hindelang_time, sample.hnd_rain_hindelang_mm = r
+    if r := fetch_hnd(HND_RAIN_BUCHLOE_URL, "Regen Buchloe"):
+        sample.hnd_rain_buchloe_time, sample.hnd_rain_buchloe_mm = r
+    if r := fetch_hnd(HND_RAIN_SCHWABMUENCHEN_URL, "Regen Schwabmünchen"):
+        sample.hnd_rain_schwabmuenchen_time, sample.hnd_rain_schwabmuenchen_mm = r
 
     # Open-Meteo: aktuelle Beobachtungen
     for name, (lat, lon) in LOCATIONS.items():

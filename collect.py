@@ -443,13 +443,22 @@ def collect() -> Sample:
         sample.singold_w_time, sample.singold_w_cm = r
 
     # NEU v1.4: HND-Regenstationen (direkte DWD-Bodenmessungen)
-    # Diese sind erheblich genauer als Open-Meteo-Gridwerte für lokale Schauer
+    # Diese sind erheblich genauer als Open-Meteo-Gridwerte für lokale Schauer.
+    #
+    # WICHTIG: Die HND-Tabelle liefert den Wert in Zehntel-Millimetern als
+    # Ganzzahl (Standard-Auflösung deutscher Niederschlagssensoren), nicht in
+    # mm mit Dezimalstelle wie bei den Pegel-Tabellen. Deshalb wird hier durch
+    # 10 geteilt. Ohne diese Korrektur entstehen unplausible Werte wie "74 mm
+    # in 5 Minuten" statt korrekt 7,4 mm.
     if r := fetch_hnd(HND_RAIN_HINDELANG_URL, "Regen Hindelang"):
-        sample.hnd_rain_hindelang_time, sample.hnd_rain_hindelang_mm = r
+        sample.hnd_rain_hindelang_time, raw = r
+        sample.hnd_rain_hindelang_mm = raw / 10
     if r := fetch_hnd(HND_RAIN_BUCHLOE_URL, "Regen Buchloe"):
-        sample.hnd_rain_buchloe_time, sample.hnd_rain_buchloe_mm = r
+        sample.hnd_rain_buchloe_time, raw = r
+        sample.hnd_rain_buchloe_mm = raw / 10
     if r := fetch_hnd(HND_RAIN_SCHWABMUENCHEN_URL, "Regen Schwabmünchen"):
-        sample.hnd_rain_schwabmuenchen_time, sample.hnd_rain_schwabmuenchen_mm = r
+        sample.hnd_rain_schwabmuenchen_time, raw = r
+        sample.hnd_rain_schwabmuenchen_mm = raw / 10
 
     # Open-Meteo: aktuelle Beobachtungen
     for name, (lat, lon) in LOCATIONS.items():

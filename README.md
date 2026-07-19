@@ -14,15 +14,56 @@ Surfwelle am Senkelbach in Augsburg, um eine Pegel-Prognose zu bauen.
 | HND Bayern | Türkheim / Wertach — Abfluss (m³/s) | ~42 | Hauptsignal kurz vor Augsburg |
 | HND Bayern | Augsburg-Oberhausen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~3 | Nach Wertachkanal-Abzweig |
 
-### Wetter (DWD-Daten via Open-Meteo)
+### Wetter — aktuelle Beobachtungen (DWD-Daten via Open-Meteo)
 
 | Station | Messwerte | Bedeutung |
 |---|---|---|
-| Oberjoch (1180m) | Niederschlag + Temperatur + Forecast | Wertach-Quellgebiet, Schneeschmelze |
+| Oberjoch (1180m) | Niederschlag + Temperatur | Wertach-Quellgebiet, Schneeschmelze |
 | Kaufbeuren | Niederschlag | Mittellauf, Zwischengebiet |
 | Marktoberdorf | Niederschlag | Mittellauf |
-| Kempten | Niederschlag + Temperatur + Forecast | Allgäu-Großwetter (Iller-Tal) |
+| Kempten | Niederschlag + Temperatur | Allgäu-Großwetter (Iller-Tal) |
 | Augsburg | Niederschlag | Lokaler Einfluss Senkelbach |
+
+### Regen-Bodenmessungen (HND-Stationen, genauer als Open-Meteo-Grid)
+
+Open-Meteo unterschätzt lokale Schauer im Wertach-EZG deutlich; die HND-Regenmesser
+liefern erheblich genauere Bodenwerte.
+
+| Station | Bedeutung |
+|---|---|
+| Hindelang-Unterjoch | Wertach-Quellgebiet (~1015 m) |
+| Buchloe | Gennach-EZG, südlich Türkheim |
+| Schwabmünchen | Wertach-Tal zwischen Türkheim und Augsburg |
+
+HND-Regenwerte kommen in **Zehntel-mm als Ganzzahl** und werden im Skript durch 10
+geteilt (sonst entstünden unplausible Werte wie „74 mm in 5 Minuten").
+
+### Regen-Vorhersage Einzugsgebiet (v1.5) — Basis für den 2–3-Tage-Ausblick
+
+Für sieben Punkte entlang der Wertach wird die Niederschlags-Vorhersage (nächste
+6 h und 24 h) in **einer einzigen Multi-Location-Anfrage** geholt. Jeder Punkt hat
+eine geschätzte Fließzeit „Regen → Welle in Augsburg"; das Forecast-Chart gewichtet
+die Vorhersagen damit **zeitversetzt** — ein Regenpeak in Oberjoch schlägt später
+auf die Welle als einer in Bobingen.
+
+| Punkt | Fließzeit Regen→Welle (geschätzt) |
+|---|---|
+| Oberjoch | ~30 h |
+| Nesselwang | ~27 h |
+| Marktoberdorf | ~22 h |
+| Bad Wörishofen | ~16 h |
+| Türkheim | ~13 h |
+| Schwabmünchen | ~9 h |
+| Bobingen | ~6 h |
+
+Die Laufzeiten sind **nicht kalibriert**, sondern aus Flusslauf/Geografie geschätzt
+(Definition in `collect.py`, Dict `CATCHMENT`). Sie werden nachjustiert, sobald echte
+Regenereignisse mit der Wellen-Reaktion abgeglichen sind. Spalten je Punkt:
+`forecast_rain_<punkt>_6h_mm` und `forecast_rain_<punkt>_24h_mm`.
+
+Kempten ist als Forecast-Quelle **raus** (liegt im Iller-EZG, speist die Wertach
+nicht); die alten `forecast_rain_kempten_*` Spalten bleiben aus Kontinuitätsgründen
+erhalten, werden aber nicht mehr befüllt.
 
 Alle 15 Minuten ein Lauf, ein Datenpunkt pro Lauf in `data/collected.csv`.
 
@@ -71,7 +112,7 @@ Im Ordner `data/` liegen drei CSV-Dateien mit klarer Aufgabenteilung:
 
 | Datei | Wer pflegt | Inhalt |
 |---|---|---|
-| `collected.csv` | Bot, alle 15 Min | Pegel, Stausee, Wetter (24 Spalten) |
+| `collected.csv` | Bot, alle 15 Min | Pegel, Stausee, Wetter, Regen-Forecast (47 Spalten) |
 | `surfwelle_manual.csv` | Mensch, alle 1-2 Wochen | Pegel der Surfwelle aus dem HTML |
 | `events.csv` | Mensch, bei Bedarf | Bachablässe, Wehrsteuerungen, Bauarbeiten |
 
@@ -82,10 +123,13 @@ zusammengejoint.
 
 ### Spalten in `collected.csv`
 
-Die ersten 13 Spalten sind Bestandsdaten (Skript-Version 1.x), die ab
-Spalte 14 sind Erweiterungen aus Version 1.2. Das Skript migriert die
-CSV automatisch beim ersten Lauf nach einem Update: alte Zeilen bekommen
-leere Werte für die neuen Spalten, niemand muss von Hand eingreifen.
+Die CSV ist über mehrere Skript-Versionen gewachsen (aktuell 47 Spalten,
+Stand v1.5): Pegelkette und erstes Wetter (v1.x), Biessenhofen/Grüntensee/
+Oberjoch (v1.2), Singold/Bobingen (v1.3), HND-Regenstationen (v1.4) und die
+Regen-Vorhersage je Einzugs-Punkt (v1.5). Das Skript migriert die CSV
+automatisch beim ersten Lauf nach einem Update: neue Spalten werden hinten
+angehängt, alte Zeilen bekommen leere Werte, niemand muss von Hand eingreifen
+(siehe `_migrate_csv_header` in `collect.py`).
 
 ## Manuelle Datenpflege
 

@@ -9,7 +9,10 @@ Sammelt alle 15 Minuten Daten zu:
 - Open-Meteo (DWD-basiert): Niederschlag in Oberjoch, Kaufbeuren, Kempten,
   Marktoberdorf, Augsburg, Bobingen
 - Open-Meteo: Temperatur in Kempten + Oberjoch (Schneeschmelze)
-- Open-Meteo: Niederschlags-Vorhersage Kempten + Oberjoch
+- Open-Meteo: Niederschlags-Vorhersage je Einzugs-Punkt [v1.5]
+  (Oberjoch, Nesselwang, Marktoberdorf, Bad Wörishofen, Türkheim,
+  Schwabmünchen, Bobingen) — Basis für den laufzeitgewichteten
+  2-3-Tage-Ausblick im Forecast-Chart. Kempten ist raus (Iller-EZG).
 
 Jeder Lauf hängt eine Zeile an data/collected.csv an.
 
@@ -47,7 +50,7 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.4 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.5 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
@@ -125,6 +128,29 @@ LOCATIONS = {
     "bobingen":      (48.2700, 10.8300),  # NEU v1.3: Singold/Wertach-Mündungsbereich
 }
 
+# NEU v1.5: Einzugsgebiets-Punkte für den Regen-VORHERSAGE-Ausblick (2-3 Tage).
+# Reihenfolge = flussaufwärts -> flussabwärts. Der dritte Wert ist die GESCHÄTZTE
+# Fließzeit "Regen an diesem Punkt -> Welle in Augsburg" in Stunden.
+#
+# WICHTIG: Diese Laufzeiten sind NICHT kalibriert, sondern grob aus Flusslauf und
+# Geografie geschätzt. Sie definieren, wie stark ein Regenpeak zeitversetzt in den
+# Ausblick eingeht. Sobald echte Regenereignisse durchgelaufen sind, können sie
+# gegen die tatsächliche Wellen-Reaktion nachjustiert werden. Das Forecast-Chart
+# nutzt exakt dieselben Punkte und Laufzeiten (dort live gezogen), deshalb hier
+# als eine Quelle der Wahrheit mitgepflegt und geloggt.
+#
+# Kempten fehlt bewusst: liegt im Iller-Einzugsgebiet, speist die Wertach nicht.
+CATCHMENT = {
+    # name:            (lat,      lon,     laufzeit_h)
+    "oberjoch":        (47.5159, 10.4058, 30),
+    "nesselwang":      (47.6197, 10.5006, 27),
+    "marktoberdorf":   (47.7800, 10.6167, 22),
+    "bad_woerishofen": (48.0058, 10.5969, 16),
+    "tuerkheim":       (48.0619, 10.6386, 13),
+    "schwabmuenchen":  (48.1786, 10.7594,  9),
+    "bobingen":        (48.2700, 10.8300,  6),
+}
+
 
 # -----------------------------------------------------------------------------
 # Datenmodell
@@ -190,6 +216,24 @@ class Sample:
     hnd_rain_buchloe_time: Optional[str] = None
     hnd_rain_schwabmuenchen_mm: Optional[float] = None
     hnd_rain_schwabmuenchen_time: Optional[str] = None
+
+    # NEUE Felder ab v1.5 — Regen-VORHERSAGE je Einzugs-Punkt (Open-Meteo).
+    # Speisen den laufzeitgewichteten 2-3-Tage-Ausblick im Forecast-Chart.
+    # Fließzeit je Punkt siehe CATCHMENT oben. Hinweis: oberjoch nutzt weiter
+    # die bestehenden forecast_rain_oberjoch_* Spalten (ab v1.2), taucht hier
+    # also NICHT nochmal auf, um Doppelspalten zu vermeiden.
+    forecast_rain_nesselwang_6h_mm: Optional[float] = None
+    forecast_rain_nesselwang_24h_mm: Optional[float] = None
+    forecast_rain_marktoberdorf_6h_mm: Optional[float] = None
+    forecast_rain_marktoberdorf_24h_mm: Optional[float] = None
+    forecast_rain_bad_woerishofen_6h_mm: Optional[float] = None
+    forecast_rain_bad_woerishofen_24h_mm: Optional[float] = None
+    forecast_rain_tuerkheim_6h_mm: Optional[float] = None
+    forecast_rain_tuerkheim_24h_mm: Optional[float] = None
+    forecast_rain_schwabmuenchen_6h_mm: Optional[float] = None
+    forecast_rain_schwabmuenchen_24h_mm: Optional[float] = None
+    forecast_rain_bobingen_6h_mm: Optional[float] = None
+    forecast_rain_bobingen_24h_mm: Optional[float] = None
 
 
 # -----------------------------------------------------------------------------
@@ -340,6 +384,63 @@ def fetch_openmeteo_forecast(lat: float, lon: float, label: str) -> dict:
         return {}
 
 
+def fetch_catchment_forecast() -> dict:
+    """
+    Holt die Niederschlags-Vorhersage für ALLE CATCHMENT-Punkte in EINER
+    Multi-Location-Anfrage: Open-Meteo akzeptiert kommaseparierte latitude/
+    longitude und liefert dann ein JSON-Array in derselben Reihenfolge zurück.
+    Das spart 6 zusätzliche HTTP-Requests pro Lauf gegenüber Einzelabfragen.
+
+    Rückgabe: {name: {"next_6h": mm, "next_24h": mm}}.
+    Kompletter Ausfall -> leeres Dict; einzelne fehlende Punkte fehlen im Dict.
+    """
+    names = list(CATCHMENT.keys())
+    lats = ",".join(str(CATCHMENT[n][0]) for n in names)
+    lons = ",".join(str(CATCHMENT[n][1]) for n in names)
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lats,
+        "longitude": lons,
+        "hourly": "precipitation",
+        "timezone": "Europe/Berlin",
+        "forecast_days": 2,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        log.warning("Open-Meteo Einzugsgebiets-Forecast fehlgeschlagen: %s", e)
+        return {}
+
+    # Multi-Location -> Liste; bei nur einem Punkt gäbe Open-Meteo ein Dict
+    # zurück (defensiv beides zulassen).
+    locs = data if isinstance(data, list) else [data]
+    now = datetime.now()
+    current_hour_str = now.strftime("%Y-%m-%dT%H:00")
+
+    out: dict = {}
+    for name, loc in zip(names, locs):
+        hourly = loc.get("hourly", {})
+        precip = hourly.get("precipitation", []) or []
+        times = hourly.get("time", []) or []
+        if not precip or not times:
+            log.warning("Open-Meteo Forecast %s — keine Stundenwerte", name)
+            continue
+        try:
+            idx = times.index(current_hour_str)
+        except ValueError:
+            idx = 0
+        next_6h = sum(v for v in precip[idx:idx + 6] if v is not None)
+        next_24h = sum(v for v in precip[idx:idx + 24] if v is not None)
+        out[name] = {"next_6h": next_6h, "next_24h": next_24h}
+        log.info(
+            "Open-Meteo Forecast %s ✓ (Laufzeit ~%dh) 6h=%.2fmm, 24h=%.2fmm",
+            name, CATCHMENT[name][2], next_6h, next_24h,
+        )
+    return out
+
+
 # -----------------------------------------------------------------------------
 # CSV-Append
 # -----------------------------------------------------------------------------
@@ -472,16 +573,17 @@ def collect() -> Sample:
             elif name == "oberjoch":  # NEU
                 sample.temp_oberjoch_c = current.get("temperature_2m")
 
-    # Open-Meteo Forecast: für Kempten (bestehend) und Oberjoch (NEU)
-    forecast_kempten = fetch_openmeteo_forecast(*LOCATIONS["kempten"], "kempten")
-    if forecast_kempten:
-        sample.forecast_rain_kempten_6h_mm = forecast_kempten.get("next_6h")
-        sample.forecast_rain_kempten_24h_mm = forecast_kempten.get("next_24h")
-
-    forecast_oberjoch = fetch_openmeteo_forecast(*LOCATIONS["oberjoch"], "oberjoch")
-    if forecast_oberjoch:
-        sample.forecast_rain_oberjoch_6h_mm = forecast_oberjoch.get("next_6h")
-        sample.forecast_rain_oberjoch_24h_mm = forecast_oberjoch.get("next_24h")
+    # NEU v1.5: Open-Meteo Regen-Vorhersage über das gesamte Wertach-Einzugsgebiet
+    # in EINER Multi-Location-Anfrage. Jeder Punkt bekommt forecast_rain_<name>_6h_mm
+    # und _24h_mm. Das Forecast-Chart gewichtet diese Werte anschließend mit der
+    # jeweiligen Fließzeit (CATCHMENT) zum 2-3-Tage-Ausblick.
+    #
+    # Die alten forecast_rain_kempten_* Spalten bleiben aus Kontinuitätsgründen
+    # erhalten, werden aber nicht mehr befüllt (Kempten ist kein Wertach-Zufluss).
+    forecasts = fetch_catchment_forecast()
+    for name, fc in forecasts.items():
+        setattr(sample, f"forecast_rain_{name}_6h_mm", fc.get("next_6h"))
+        setattr(sample, f"forecast_rain_{name}_24h_mm", fc.get("next_24h"))
 
     return sample
 

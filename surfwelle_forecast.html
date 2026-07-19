@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Surfwelle Augsburg — Prognose</title>
+<style>
+  :root{
+    --navy:#0b1a24; --navy2:#0f2430; --line:#1d4657;
+    --ink:#e6f0f2; --dim:#7ea4ad; --faint:#4d7885;
+    --water:#38c7d6; --fore:#f2b452; --forec:#ec5eb0; --rain:#a98be0; --rainbar:#3f6aa8;
+    --surf:#57d98a; --good:#ffd24a; --miss:#e06b6b;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:"Helvetica Neue",Arial,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--navy);color:var(--ink);font-family:var(--sans);padding:22px 16px 48px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto}
+  header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;border-bottom:1px solid var(--line);padding-bottom:14px}
+  h1{font-size:20px;font-weight:800;letter-spacing:-.02em}
+  h1 span{color:var(--water)}
+  .sub{font-family:var(--mono);font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.12em;margin-top:3px}
+  #updated{font-family:var(--mono);font-size:11px;color:var(--faint);text-align:right}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
+  @media(max-width:640px){.cards{grid-template-columns:repeat(2,1fr)}}
+  .card{background:var(--navy2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .card .k{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}
+  .card .v{font-family:var(--mono);font-size:26px;font-weight:600;margin-top:4px;letter-spacing:-.02em}
+  .card .u{font-size:12px;color:var(--faint);font-weight:400}
+  .verdict{font-family:var(--mono);font-size:12px;font-weight:600;margin-top:2px}
+  .chartbox{background:var(--navy2);border:1px solid var(--line);border-radius:12px;padding:14px 8px 8px;position:relative}
+  canvas{display:block;width:100%;height:auto;touch-action:none}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:6px 10px 8px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .legend b{display:inline-block;width:20px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+  .tip{position:absolute;pointer-events:none;background:#04303a;color:var(--ink);border:1px solid var(--water);border-radius:7px;padding:7px 9px;font-family:var(--mono);font-size:11px;opacity:0;transition:opacity .08s;white-space:nowrap;z-index:5;transform:translate(-50%,-115%)}
+  .ctrls{display:flex;gap:22px;flex-wrap:wrap;margin:14px 0 2px}
+  .ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .ctrl .lbl{font-family:var(--mono);font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-right:2px}
+  button{background:var(--navy2);color:var(--dim);border:1px solid var(--line);font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:7px;cursor:pointer}
+  button.on{background:var(--water);color:#04222a;border-color:var(--water);font-weight:700}
+  .ctrl.fore button.on{background:var(--rain);color:#160b28;border-color:var(--rain)}
+  .skill{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+  @media(max-width:640px){.skill{grid-template-columns:1fr}}
+  .skill .card .v{font-size:20px}
+  .skillhead{font-family:var(--mono);font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin-top:18px;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .skillhead .tag{background:rgba(236,94,176,.16);color:var(--forec);border:1px solid rgba(236,94,176,.35);border-radius:5px;padding:1px 6px;font-size:10px;letter-spacing:.05em}
+  .note{background:rgba(169,139,224,.09);border:1px solid rgba(169,139,224,.3);border-radius:9px;padding:10px 13px;margin-top:14px;font-size:12.5px;color:#c9bce8}
+  .note.small{font-size:11.5px;color:#9fb4bd;background:rgba(63,106,168,.08);border-color:rgba(63,106,168,.28)}
+  footer{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:20px;line-height:1.7}
+  a{color:var(--water);text-decoration:none}
+  .loading{text-align:center;padding:60px 0;font-family:var(--mono);color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Surfwelle Augsburg <span>· Prognose</span></h1>
+      <div class="sub">Abfluss 8 h · bias-korrigiert · Regen-Ausblick 7 Punkte · v4</div></div>
+    <div id="updated">lade …</div>
+  </header>
+  <div id="app"><div class="loading">Ziehe Live-Daten aus GitHub + Open-Meteo …</div></div>
+  <footer id="foot"></footer>
+</div>
+<script>
+/* ===== 8h-Abfluss-Prognose: Transferfunktion Türkheim→Welle ===== */
+const KNOTS=[[0,22],[2,23.7],[4,28.1],[5,31.9],[6,35.8],[7,38.4],[8,45.7],[9,53.4],[10,58.6],[12,66],[16,72]];
+const SURF=60, GOOD=75, LAG=8;
+const REPO="https://raw.githubusercontent.com/Bedaworo/surfwelle-data/main/data/";
+function transfer(f){if(f==null||isNaN(f))return null;if(f<=KNOTS[0][0])return KNOTS[0][1];
+  for(let i=0;i<KNOTS.length-1;i++){const[a,ya]=KNOTS[i],[b,yb]=KNOTS[i+1];if(f<=b)return ya+(yb-ya)*(f-a)/(b-a);}return KNOTS.at(-1)[1];}
+
+/* ===== Einzugsgebiet: Punkte mit GESCHÄTZTER Laufzeit Regen→Welle (h) und Gewicht =====
+   Reihenfolge oben→unten = flussaufwärts→flussabwärts. Laufzeiten sind geschätzt
+   (Flusslauf/Geografie), NICHT kalibriert – hier justieren, sobald echte Events durchlaufen. */
+const CATCHMENT=[
+  // Name,            lat,      lon,     Laufzeit_h, Gewicht
+  ["Oberjoch",        47.5159, 10.4058, 30, 1.2],
+  ["Nesselwang",      47.6197, 10.5006, 27, 1.1],
+  ["Marktoberdorf",   47.7800, 10.6167, 22, 1.1],
+  ["Bad Wörishofen",  48.0058, 10.5969, 16, 1.0],
+  ["Türkheim",        48.0619, 10.6386, 13, 1.0],
+  ["Schwabmünchen",   48.1786, 10.7594,  9, 0.9],
+  ["Bobingen",        48.2700, 10.8300,  6, 0.9],
+];
+/* Regen-Ausblick: gewichteter, laufzeitversetzter Zufluss-Index (mm-artig) -> grobe Welle + Chance.
+   Bewusst grob: Regen→Abfluss bislang nur r≈0.22 (6 Ereignisse). cm-Mapping = Platzhalter. */
+function rainOutlook(idx){if(idx==null)return null;const pts=[[0,24],[12,34],[30,48],[55,60],[90,72]];let c=pts.at(-1)[1];
+  if(idx<=0)c=pts[0][1];else for(let i=0;i<pts.length-1;i++){const[a,ya]=pts[i],[b,yb]=pts[i+1];if(idx<=b){c=ya+(yb-ya)*(idx-a)/(b-a);break;}}
+  const spread=12+idx*0.18, chance=Math.max(0,Math.min(1,(idx-10)/45));
+  return{center:c,lo:Math.max(15,c-spread),hi:c+spread,chance,idx};}
+
+const HOUR=3600e3, floorH=ms=>Math.floor(ms/HOUR)*HOUR;
+async function getCSV(name){const r=await fetch(REPO+name,{cache:"no-store"});if(!r.ok)throw new Error(name+" HTTP "+r.status);
+  const rows=(await r.text()).trim().split(/\r?\n/),head=rows[0].split(",");
+  return rows.slice(1).map(l=>{const c=l.split(","),o={};head.forEach((h,i)=>o[h.trim()]=c[i]);return o;});}
+async function getRainForecast(){
+  const lat=CATCHMENT.map(c=>c[1]).join(","), lon=CATCHMENT.map(c=>c[2]).join(",");
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=precipitation&timezone=UTC&past_days=2&forecast_days=4`;
+  const r=await fetch(url);if(!r.ok)throw new Error("Open-Meteo "+r.status);
+  const d=await r.json(), locs=Array.isArray(d)?d:[d];
+  return CATCHMENT.map((c,i)=>{const loc=locs[i]||{hourly:{time:[],precipitation:[]}};
+    const T=loc.hourly.time,P=loc.hourly.precipitation,m={};
+    for(let j=0;j<T.length;j++)m[floorH(Date.parse(T[j]+"Z"))]=P[j]||0;
+    return{name:c[0],lag:c[3],weight:c[4],rain:m};});
+}
+// Zufluss-Index für Wellen-Stunde H: pro Punkt Regen zum Zeitpunkt H-Laufzeit, dreieckig ±3h verschmiert
+const SMEAR=[1,2,3,4,3,2,1], SMSUM=16;
+function arriveIdx(pts,H){let idx=0,any=false;
+  for(const p of pts){let contrib=0,seen=false;
+    for(let d=-3;d<=3;d++){const r=p.rain[H-p.lag*HOUR+d*HOUR];if(r!=null){contrib+=SMEAR[d+3]*r;seen=true;}}
+    if(seen){idx+=p.weight*contrib/SMSUM;any=true;}}
+  return any?idx:null;}
+
+/* ===== Bias-Korrektur der 8h-Abflussprognose =====
+   Idee: die Amber-Prognose ist manchmal systematisch zu hoch/niedrig (z.B. weil
+   das Wehr gerade anders steuert als sonst). Wir korrigieren das NICHT, indem wir
+   den aktuell gemessenen Wert in die Prognose zurückfließen lassen (das würde den
+   Backtest verfälschen — man würde die eigene Messung teilweise zurückbekommen),
+   sondern indem wir NUR bereits VERGANGENE Fehler nutzen, die zum Vorhersage-
+   zeitpunkt echt schon bekannt gewesen wären. Das ist kein Leakage: bei jedem
+   Punkt fließen ausschließlich Differenzen (wave-fore) VOR diesem Punkt ein.
+   -> foreCorr = fore + gleitender Mittelwert der letzten BIAS_N bekannten Fehler.
+   Für die Vergangenheit entsteht so ein ehrlicher retrospektiver Test: "hätte
+   Bias-Korrektur damals geholfen?" — ohne dass spätere Messwerte durchsickern. */
+const BIAS_N=6; // letzte N bekannte (wave-fore)-Differenzen für den gleitenden Bias
+function addBiasCorrection(series){
+  const diffs=[];
+  for(const d of series){
+    if(d.fore!=null && diffs.length){
+      const bias=diffs.reduce((a,b)=>a+b,0)/diffs.length;
+      d.foreCorr=Math.round((d.fore+bias)*10)/10;
+      d.bias=Math.round(bias*10)/10;
+    }else{ d.foreCorr=null; d.bias=null; }
+    // Update NACH der Korrektur dieses Punkts -> spätere Punkte sehen diesen
+    // Fehler erst, frühere/dieser Punkt selbst nie.
+    if(d.wave!=null && d.fore!=null){
+      diffs.push(d.wave-d.fore);
+      if(diffs.length>BIAS_N) diffs.shift();
+    }
+  }
+}
+
+async function build(){
+  let collected,swell,pts=null,rainOk=true;
+  try{[collected,swell]=await Promise.all([getCSV("collected.csv"),getCSV("surfwelle_manual.csv")]);}
+  catch(e){document.getElementById("app").innerHTML='<div class="loading">GitHub nicht erreichbar ('+e.message+')</div>';return;}
+  try{pts=await getRainForecast();}catch(e){rainOk=false;}
+  const waveH={};
+  for(const r of swell){const ms=Date.parse(r.time),v=parseFloat(r.percent);if(isNaN(ms)||isNaN(v))continue;
+    const h=floorH(ms);if(waveH[h]==null||v>waveH[h])waveH[h]=v;}
+  const flowH={},flowN={};
+  for(const r of collected){const ms=Date.parse(r.collected_at),v=parseFloat(r.tuerkheim_q_m3s);if(isNaN(ms)||isNaN(v))continue;
+    const h=floorH(ms);flowH[h]=(flowH[h]||0)+v;flowN[h]=(flowN[h]||0)+1;}
+  for(const h in flowH)flowH[h]/=flowN[h];
+  const now=floorH(Date.now()), start=now-15*24*HOUR, end=now+3*24*HOUR, series=[];
+  for(let h=start;h<=end;h+=HOUR){
+    let peak=null;for(let k=h-(LAG+2)*HOUR;k<=h-(LAG-2)*HOUR;k+=HOUR)if(flowH[k]!=null&&(peak==null||flowH[k]>peak))peak=flowH[k];
+    let idx=null;if(pts&&h>now)idx=arriveIdx(pts,h);
+    series.push({t:h,wave:waveH[h]??null,fore:(peak!=null)?Math.round(transfer(peak)*10)/10:null,flow:peak,
+      idx:idx,ro:(idx!=null)?rainOutlook(idx):null});}
+  addBiasCorrection(series);
+  render(series,now,rainOk);
+}
+/* ===== Rückblick-Stufen synchron zur Swell-Seite (Stunden) ===== */
+const PAST_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[168,"7 T"],[336,"14 T"]];
+// Gleiche Abstufung wie Rückblick, aber gedeckelt bei 3 Tagen — weiter reicht
+// der Regen-Ausblick nicht (Open-Meteo-Forecast-Horizont).
+const FORE_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[72,"3 T"]];
+let S={series:[],now:0,past:48,fore:24};
+function render(series,now,rainOk){
+  S.series=series;S.now=now;
+  const past=series.filter(d=>d.t<=now), cur=[...past].reverse().find(d=>d.wave!=null), curWave=cur?cur.wave:null;
+  const fut8=series.filter(d=>d.t>now&&d.t<=now+8*HOUR&&d.fore!=null), fore8=fut8.length?Math.max(...fut8.map(d=>d.fore)):null;
+  const roFut=series.filter(d=>d.t>now+8*HOUR&&d.ro), bestRo=roFut.length?roFut.reduce((a,b)=>b.ro.chance>a.ro.chance?b:a):null;
+  const vC=v=>v==null?'':(v>=GOOD?'style="color:var(--good)"':v>=SURF?'style="color:var(--surf)"':'style="color:var(--dim)"');
+  const vd=v=>v==null?'—':(v>=GOOD?'GUT':v>=SURF?'SURFBAR':'zu niedrig');
+  const pastBtns=PAST_OPTS.map(([h,l])=>`<button data-p="${h}">${l}</button>`).join("");
+  const foreBtns=FORE_OPTS.map(([h,l])=>`<button data-f="${h}">${l}</button>`).join("");
+  const lagList=CATCHMENT.map(c=>`${c[0]} ~${c[3]} h`).join(" · ");
+  document.getElementById("app").innerHTML=`
+    <div class="cards">
+      <div class="card"><div class="k">Welle jetzt</div><div class="v" ${vC(curWave)}>${curWave!=null?curWave.toFixed(0):'—'}<span class="u"> cm</span></div><div class="verdict" ${vC(curWave)}>${vd(curWave)}</div></div>
+      <div class="card"><div class="k">Prognose max · 8 h</div><div class="v" ${vC(fore8)}>${fore8!=null?fore8.toFixed(0):'—'}<span class="u"> cm</span></div><div class="verdict" ${vC(fore8)}>${fore8!=null?vd(fore8):'kein Zufluss'}</div></div>
+      <div class="card"><div class="k">Türkheim (Basis)</div><div class="v">${(cur?.flow??past.at(-1)?.flow)?.toFixed(1)??'—'}<span class="u"> m³/s</span></div><div class="verdict" style="color:var(--faint)">Schwelle ~9–10</div></div>
+      <div class="card"><div class="k">Regen-Ausblick 3 T</div><div class="v" style="color:var(--rain)">${bestRo?Math.round(bestRo.ro.chance*100)+'%':'—'}</div><div class="verdict" style="color:var(--faint)">${bestRo&&bestRo.ro.chance>0.15?'Chance '+dayName(bestRo.t):'ruhig'}</div></div>
+    </div>
+    <div class="ctrls">
+      <div class="ctrl"><span class="lbl">Rückblick</span>${pastBtns}</div>
+      <div class="ctrl fore"><span class="lbl">Vorschau</span>${foreBtns}</div>
+    </div>
+    <div class="chartbox"><canvas id="cv"></canvas><div class="tip" id="tip"></div></div>
+    <div class="legend">
+      <span><b style="background:var(--water)"></b>gemessen</span>
+      <span><b style="background:var(--fore)"></b>Prognose 8 h (Abfluss Türkheim)</span>
+      <span><b style="background:var(--forec);height:2px;border-top:2px dashed var(--forec);background:none"></b>Prognose korrigiert (Bias: letzte 6 Messwerte)</span>
+      <span><b style="background:var(--rain)"></b>Ausblick (Regen, 7 Pkt.)</span>
+      <span><b style="background:var(--rainbar);height:8px"></b>erwarteter Zufluss</span>
+      <span><b style="background:var(--miss)"></b>Fehltreffer</span>
+    </div>
+    ${!rainOk?'<div class="note">⚠ Regen-Ausblick nicht verfügbar (Open-Meteo nicht erreichbar). Abfluss-Prognose läuft normal.</div>':''}
+    <div class="skill" id="skill"></div>
+    <div class="skillhead" id="skillCorrHead" style="display:none"><span>Retrospektiver Test: mit Bias-Korrektur</span><span class="tag">TEST</span></div>
+    <div class="skill" id="skillCorr"></div>
+    <div class="note"><b>Zur Lesart:</b> Amber (0–8 h) ist belastbar – Wasser ist schon im Fluss. Die pinke, gestrichelte Linie ist dieselbe Prognose,
+      nur um den zuletzt bekannten Fehler verschoben (Bias-Korrektur aus den letzten 6 Messwerten) – sie nutzt NUR Fehler von <b>vor</b> jedem Zeitpunkt, nie den Messwert, den sie gerade vorhersagt,
+      sonst würde der Vergleich sich selbst belügen. Das violette Band (bis 3 Tage) summiert die
+      Regenprognose der 7 Einzugs-Punkte, jeder mit eigener geschätzter <b>Laufzeit bis zur Welle</b>. Timing modelliert, Höhe grob/unkalibriert – breites Band = echte Unsicherheit.</div>
+    <div class="note small"><b>Laufzeiten (geschätzt, Regen→Welle):</b> ${lagList}. Downstream-Punkte (Schwabmünchen, Bobingen) fließen an Türkheim vorbei – sie können Wasser anzeigen, das die 8h-Abflussprognose gar nicht sieht.</div>
+  `;
+  document.querySelectorAll("[data-p]").forEach(b=>{if(+b.dataset.p===S.past)b.classList.add("on");
+    b.onclick=()=>{S.past=+b.dataset.p;document.querySelectorAll("[data-p]").forEach(x=>x.classList.remove("on"));b.classList.add("on");draw();skill();};});
+  document.querySelectorAll("[data-f]").forEach(b=>{if(+b.dataset.f===S.fore)b.classList.add("on");
+    b.onclick=()=>{S.fore=+b.dataset.f;document.querySelectorAll("[data-f]").forEach(x=>x.classList.remove("on"));b.classList.add("on");draw();};});
+  document.getElementById("updated").textContent="Stand "+new Date(now).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+" lokal";
+  draw();skill();wireHover();
+}
+function dayName(t){const dh=(t-S.now)/HOUR;if(dh<24)return"heute";if(dh<48)return"morgen";return new Date(t).toLocaleDateString('de-DE',{weekday:'short'});}
+function skill(){
+  const from=S.now-S.past*HOUR;
+  const w=S.series.filter(d=>d.t>=from&&d.t<=S.now&&d.wave!=null&&d.fore!=null);
+  const el=document.getElementById("skill"), elC=document.getElementById("skillCorr"), headC=document.getElementById("skillCorrHead");
+  if(!el)return;
+  if(w.length<6){
+    el.innerHTML='<div class="card"><div class="k">Skill (8h-Prognose)</div><div class="verdict" style="color:var(--faint)">Fenster zu kurz – längeren Rückblick wählen</div></div>';
+    if(elC)elC.innerHTML=''; if(headC)headC.style.display='none';
+    return;
+  }
+  const mae=w.reduce((s,d)=>s+Math.abs(d.wave-d.fore),0)/w.length;
+  let tp=0,fp=0,fn=0;w.forEach(d=>{const a=d.wave>=SURF,p=d.fore>=SURF;if(a&&p)tp++;else if(!a&&p)fp++;else if(a&&!p)fn++;});
+  const prec=tp+fp?tp/(tp+fp)*100:null,rec=tp+fn?tp/(tp+fn)*100:null;
+  el.innerHTML=`
+    <div class="card"><div class="k">Mittl. Fehler (MAE)</div><div class="v">${mae.toFixed(1)}<span class="u"> cm</span></div><div class="verdict" style="color:var(--faint)">${w.length} Std · roh, unkorrigiert</div></div>
+    <div class="card"><div class="k">Treffergenauigkeit</div><div class="v">${prec!=null?prec.toFixed(0)+'%':'—'}</div><div class="verdict" style="color:var(--faint)">wenn „surfbar" gesagt</div></div>
+    <div class="card"><div class="k">Erfassungsrate</div><div class="v">${rec!=null?rec.toFixed(0)+'%':'—'}</div><div class="verdict" style="color:var(--faint)">echte surfbare Std erkannt</div></div>`;
+
+  // Korrigierte Variante: RETROSPEKTIV mit denselben Punkten, aber foreCorr statt fore.
+  // foreCorr nutzt an jedem Punkt nur Fehler, die VOR diesem Punkt bekannt waren
+  // (siehe addBiasCorrection) — kein Leakage, ehrlicher Test ob Bias-Korrektur geholfen hätte.
+  const wc=S.series.filter(d=>d.t>=from&&d.t<=S.now&&d.wave!=null&&d.foreCorr!=null);
+  if(!elC||!headC)return;
+  if(wc.length<6){headC.style.display='none';elC.innerHTML='';return;}
+  headC.style.display='flex';
+  const maeC=wc.reduce((s,d)=>s+Math.abs(d.wave-d.foreCorr),0)/wc.length;
+  let tpC=0,fpC=0,fnC=0;wc.forEach(d=>{const a=d.wave>=SURF,p=d.foreCorr>=SURF;if(a&&p)tpC++;else if(!a&&p)fpC++;else if(a&&!p)fnC++;});
+  const precC=tpC+fpC?tpC/(tpC+fpC)*100:null,recC=tpC+fnC?tpC/(tpC+fnC)*100:null;
+  const delta=maeC-mae;
+  elC.innerHTML=`
+    <div class="card"><div class="k">MAE korrigiert</div><div class="v">${maeC.toFixed(1)}<span class="u"> cm</span></div><div class="verdict" style="color:${delta<0?'var(--surf)':'var(--miss)'}">${delta<=0?'':'+'}${delta.toFixed(1)} cm vs. roh</div></div>
+    <div class="card"><div class="k">Treffergenauigkeit</div><div class="v">${precC!=null?precC.toFixed(0)+'%':'—'}</div><div class="verdict" style="color:var(--faint)">bias-korrigiert</div></div>
+    <div class="card"><div class="k">Erfassungsrate</div><div class="v">${recC!=null?recC.toFixed(0)+'%':'—'}</div><div class="verdict" style="color:var(--faint)">bias-korrigiert</div></div>`;
+}
+/* ===== Canvas ===== */
+const PAD={l:42,r:14,t:16,b:26};
+let GEO=null;
+function draw(){
+  const cv=document.getElementById("cv");if(!cv)return;
+  const from=S.now-S.past*HOUR, to=S.now+S.fore*HOUR, data=S.series.filter(d=>d.t>=from&&d.t<=to), showRain=S.fore>8;
+  const cssW=cv.parentElement.clientWidth-16, cssH=Math.min(430,Math.max(270,cssW*0.5)), dpr=window.devicePixelRatio||1;
+  cv.width=cssW*dpr;cv.height=cssH*dpr;cv.style.height=cssH+"px";
+  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,cssW,cssH);
+  const X=t=>PAD.l+(t-from)/(to-from)*(cssW-PAD.l-PAD.r), Y=v=>PAD.t+(1-v/100)*(cssH-PAD.t-PAD.b);
+  GEO={X,Y,from,to,data};
+  g.fillStyle="rgba(87,217,138,.10)";g.fillRect(PAD.l,Y(GOOD),cssW-PAD.l-PAD.r,Y(SURF)-Y(GOOD));
+  g.fillStyle="rgba(255,210,74,.09)";g.fillRect(PAD.l,PAD.t,cssW-PAD.l-PAD.r,Y(GOOD)-PAD.t);
+  g.font="10px "+getComputedStyle(document.body).getPropertyValue('--mono');g.textAlign="right";g.textBaseline="middle";
+  [0,20,40,60,75,80,100].forEach(v=>{g.strokeStyle="#173846";g.beginPath();g.moveTo(PAD.l,Y(v));g.lineTo(cssW-PAD.r,Y(v));g.stroke();
+    g.fillStyle=(v===SURF||v===GOOD)?"#8fb7c0":"#5f8b96";g.fillText(v,PAD.l-6,Y(v));});
+  g.textAlign="left";g.fillStyle="#57d98a";g.fillText("surfbar",PAD.l+4,Y(SURF)-8);g.fillStyle="#ffd24a";g.fillText("gut",PAD.l+4,Y(GOOD)-8);
+  g.fillStyle="#5f8b96";g.textAlign="center";g.textBaseline="top";
+  const spanH=(to-from)/HOUR;
+  if(spanH<=52){const step=(spanH<=14?2:6)*HOUR;
+    for(let t=Math.ceil(from/step)*step;t<=to;t+=step){const d=new Date(t);
+      g.strokeStyle="#12303d";g.beginPath();g.moveTo(X(t),PAD.t);g.lineTo(X(t),cssH-PAD.b);g.stroke();
+      const lab=d.getHours()===0?d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}):d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+      g.fillText(lab,X(t),cssH-PAD.b+5);}
+  }else{const dayMs=24*HOUR;
+    for(let t=Math.ceil(from/dayMs)*dayMs;t<=to;t+=dayMs){g.strokeStyle="#12303d";g.beginPath();g.moveTo(X(t),PAD.t);g.lineTo(X(t),cssH-PAD.b);g.stroke();
+      g.fillText(new Date(t).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}),X(t),cssH-PAD.b+5);}}
+  // Zufluss-Index als Balken (von oben)
+  if(showRain){const bw=Math.max(2,(cssW-PAD.l-PAD.r)/((to-from)/HOUR)-1);
+    data.forEach(d=>{if(d.idx==null||d.idx<=0.5)return;const hh=Math.min(1,d.idx/50)*46;g.fillStyle="rgba(63,106,168,.72)";g.fillRect(X(d.t)-bw/2,PAD.t,bw,hh);});}
+  // Regen-Ausblick-Band
+  if(showRain){const ro=data.filter(d=>d.ro);if(ro.length){
+    g.fillStyle="rgba(169,139,224,.16)";g.beginPath();
+    ro.forEach((d,i)=>{const x=X(d.t),y=Y(Math.min(100,d.ro.hi));i?g.lineTo(x,y):g.moveTo(x,y);});
+    for(let i=ro.length-1;i>=0;i--){const d=ro[i];g.lineTo(X(d.t),Y(Math.max(0,d.ro.lo)));}
+    g.closePath();g.fill();
+    g.strokeStyle="#a98be0";g.lineWidth=1.6;g.setLineDash([2,3]);g.beginPath();
+    ro.forEach((d,i)=>{const x=X(d.t),y=Y(d.ro.center);i?g.lineTo(x,y):g.moveTo(x,y);});g.stroke();g.setLineDash([]);}}
+  // jetzt
+  g.strokeStyle="#e6f0f2";g.setLineDash([4,4]);g.lineWidth=1;g.beginPath();g.moveTo(X(S.now),PAD.t);g.lineTo(X(S.now),cssH-PAD.b);g.stroke();g.setLineDash([]);
+  g.fillStyle="#cfe3e7";g.textAlign="center";g.textBaseline="bottom";g.fillText("jetzt",X(S.now),PAD.t+11);
+  line(g,data,'fore',X,Y,"#f2b452",2,S.now);
+  // Korrigierte Prognose: nur in der Zukunft zeichnen (Vergangenheit bleibt roh für den Backtest sichtbar)
+  const futCorr=data.map(d=>d.t>S.now?d:{...d,foreCorr:null});
+  line(g,futCorr,'foreCorr',X,Y,"#ec5eb0",1.8,null,[5,3]);
+  line(g,data,'wave',X,Y,"#38c7d6",2.4,null);
+  g.fillStyle="#e06b6b";data.forEach(d=>{if(d.t>S.now||d.wave==null||d.fore==null)return;
+    if((d.fore>=SURF)!==(d.wave>=SURF)){g.beginPath();g.arc(X(d.t),Y(d.wave),2.6,0,7);g.fill();}});
+}
+function line(g,data,key,X,Y,color,w,splitNow,forceDash){
+  g.lineWidth=w;g.strokeStyle=color;g.lineJoin="round";let started=false,wasFut=false;g.beginPath();
+  data.forEach(d=>{const v=d[key];if(v==null){if(started){g.stroke();started=false;}return;}
+    const fut=splitNow!=null&&d.t>splitNow;
+    const dash=forceDash?forceDash:(fut?[5,4]:[]);
+    if(!started){g.beginPath();g.moveTo(X(d.t),Y(v));g.setLineDash(dash);started=true;wasFut=fut;}
+    else if(fut!==wasFut){g.lineTo(X(d.t),Y(v));g.stroke();g.beginPath();g.moveTo(X(d.t),Y(v));g.setLineDash(dash);wasFut=fut;}
+    else g.lineTo(X(d.t),Y(v));});
+  if(started)g.stroke();g.setLineDash([]);
+}
+function wireHover(){
+  const cv=document.getElementById("cv"),tip=document.getElementById("tip");if(!cv)return;
+  function move(e){if(!GEO)return;const rect=cv.getBoundingClientRect();const px=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;
+    let best=null,bd=1e9;GEO.data.forEach(d=>{const dx=Math.abs(GEO.X(d.t)-px);if(dx<bd){bd=dx;best=d;}});
+    if(!best||bd>40){tip.style.opacity=0;return;}
+    const dt=new Date(best.t);let h=`<b>${dt.toLocaleString('de-DE',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</b>`;
+    if(best.wave!=null)h+=`<br>Welle: ${best.wave.toFixed(0)} cm`;
+    if(best.fore!=null&&best.t<=S.now+8*HOUR)h+=`<br>Prognose: ${best.fore.toFixed(0)} cm`;
+    if(best.foreCorr!=null&&best.t>S.now)h+=`<br><span style="color:#ec5eb0">korrigiert: ${best.foreCorr.toFixed(0)} cm (Bias ${best.bias>0?'+':''}${best.bias.toFixed(1)})</span>`;
+    if(best.flow!=null)h+=`<br>Türkheim: ${best.flow.toFixed(1)} m³/s`;
+    if(best.ro)h+=`<br><span style="color:#a98be0">Ausblick: ${best.ro.lo.toFixed(0)}–${best.ro.hi.toFixed(0)} cm · ${Math.round(best.ro.chance*100)}%</span>`;
+    if(best.idx!=null&&best.idx>0.5)h+=`<br>Zufluss-Index: ${best.idx.toFixed(1)}`;
+    tip.innerHTML=h;tip.style.left=GEO.X(best.t)+"px";tip.style.top=GEO.Y(best.wave??best.fore??(best.ro?best.ro.center:50))+"px";tip.style.opacity=1;}
+  cv.onmousemove=move;cv.ontouchmove=move;cv.onmouseleave=()=>tip.style.opacity=0;
+}
+window.addEventListener("resize",draw);
+document.getElementById("foot").innerHTML=
+  'v4 · 8h-Prognose = Transferfunktion Türkheim→Welle (r≈0,81), optional bias-korrigiert (letzte 6 bekannte Fehler, kein Leakage). Regen-Ausblick = 7 Einzugs-Punkte (Open-Meteo), je eigene geschätzte Laufzeit bis zur Welle, gewichtet summiert. Laufzeiten + cm-Höhe noch unkalibriert. Nicht erfasst: Wehrsteuerung. Daten: <a href="https://github.com/Bedaworo/surfwelle-data">GitHub</a> + Open-Meteo.';
+build();
+</script>
+</body>
+</html>

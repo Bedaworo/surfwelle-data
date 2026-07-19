@@ -90,6 +90,28 @@ function rainOutlook(idx){if(idx==null)return null;const pts=[[0,24],[12,34],[30
   return{center:c,lo:Math.max(15,c-spread),hi:c+spread,chance,idx};}
 
 const HOUR=3600e3, floorH=ms=>Math.floor(ms/HOUR)*HOUR;
+
+/* ===== Zeitzonen-Fallback für surfwelle_manual.csv =====
+   Die Datei enthält zwei Zeitstempel-Formate: älter MIT Offset (z.B. "+02:00",
+   µs-genau) und neuer OHNE Offset (nur Minute), vermutlich seit dem
+   automatisierten fetch_swell.py. Ein Zeitstempel ohne Offset ist laut
+   JS-Spezifikation mehrdeutig — er würde in der Zeitzone des BROWSERS
+   interpretiert, der die Seite lädt, nicht in der der Datenquelle. Da die
+   Werte von einer deutschen Vereinsseite stammen, behandeln wir Zeitstempel
+   ohne Offset explizit als Europe/Berlin — unabhängig davon, wo die Seite
+   gerade geöffnet wird. Zeitstempel MIT Offset/Z werden normal geparst. */
+function berlinOffsetMs(utcMs){
+  const dtf=new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Berlin',hour12:false,
+    year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const o={};dtf.formatToParts(new Date(utcMs)).forEach(p=>o[p.type]=p.value);
+  const wallAsUTC=Date.UTC(+o.year,+o.month-1,+o.day,o.hour==='24'?0:+o.hour,+o.minute,+o.second);
+  return wallAsUTC-utcMs;
+}
+function parseSwellTime(str){
+  if(/[+-]\d{2}:\d{2}$|Z$/.test(str))return Date.parse(str); // hat Offset -> normal
+  const guess=Date.parse(str+'Z');if(isNaN(guess))return NaN;  // naiv -> als Europe/Berlin lesen
+  return guess-berlinOffsetMs(guess);
+}
 async function getCSV(name){const r=await fetch(REPO+name,{cache:"no-store"});if(!r.ok)throw new Error(name+" HTTP "+r.status);
   const rows=(await r.text()).trim().split(/\r?\n/),head=rows[0].split(",");
   return rows.slice(1).map(l=>{const c=l.split(","),o={};head.forEach((h,i)=>o[h.trim()]=c[i]);return o;});}
@@ -146,7 +168,7 @@ async function build(){
   catch(e){document.getElementById("app").innerHTML='<div class="loading">GitHub nicht erreichbar ('+e.message+')</div>';return;}
   try{pts=await getRainForecast();}catch(e){rainOk=false;}
   const waveH={};
-  for(const r of swell){const ms=Date.parse(r.time),v=parseFloat(r.percent);if(isNaN(ms)||isNaN(v))continue;
+  for(const r of swell){const ms=parseSwellTime(r.time),v=parseFloat(r.percent);if(isNaN(ms)||isNaN(v))continue;
     const h=floorH(ms);if(waveH[h]==null||v>waveH[h])waveH[h]=v;}
   const flowH={},flowN={};
   for(const r of collected){const ms=Date.parse(r.collected_at),v=parseFloat(r.tuerkheim_q_m3s);if(isNaN(ms)||isNaN(v))continue;
@@ -159,7 +181,7 @@ async function build(){
     series.push({t:h,wave:waveH[h]??null,fore:(peak!=null)?Math.round(transfer(peak)*10)/10:null,flow:peak,
       idx:idx,ro:(idx!=null)?rainOutlook(idx):null});}
   addBiasCorrection(series);
-  render(series,now,rainOk);
+  render(series,now,rainOk,Date.now()); // echte (nicht gerundete) Ladezeit für die "Stand"-Anzeige
 }
 /* ===== Rückblick-Stufen synchron zur Swell-Seite (Stunden) ===== */
 const PAST_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[168,"7 T"],[336,"14 T"]];
@@ -167,7 +189,7 @@ const PAST_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h
 // der Regen-Ausblick nicht (Open-Meteo-Forecast-Horizont).
 const FORE_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[72,"3 T"]];
 let S={series:[],now:0,past:48,fore:24};
-function render(series,now,rainOk){
+function render(series,now,rainOk,loadTime){
   S.series=series;S.now=now;
   const past=series.filter(d=>d.t<=now), cur=[...past].reverse().find(d=>d.wave!=null), curWave=cur?cur.wave:null;
   const fut8=series.filter(d=>d.t>now&&d.t<=now+8*HOUR&&d.fore!=null), fore8=fut8.length?Math.max(...fut8.map(d=>d.fore)):null;
@@ -211,7 +233,7 @@ function render(series,now,rainOk){
     b.onclick=()=>{S.past=+b.dataset.p;document.querySelectorAll("[data-p]").forEach(x=>x.classList.remove("on"));b.classList.add("on");draw();skill();};});
   document.querySelectorAll("[data-f]").forEach(b=>{if(+b.dataset.f===S.fore)b.classList.add("on");
     b.onclick=()=>{S.fore=+b.dataset.f;document.querySelectorAll("[data-f]").forEach(x=>x.classList.remove("on"));b.classList.add("on");draw();};});
-  document.getElementById("updated").textContent="Stand "+new Date(now).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+" lokal";
+  document.getElementById("updated").textContent="Aktualisiert "+new Date(loadTime).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+" · Daten stündl. gerastert";
   draw();skill();wireHover();
 }
 function dayName(t){const dh=(t-S.now)/HOUR;if(dh<24)return"heute";if(dh<48)return"morgen";return new Date(t).toLocaleDateString('de-DE',{weekday:'short'});}

@@ -128,13 +128,22 @@ time,percent
 Die Rohdaten stehen im HTML der Vereins-Buchungsseite
 (`buchung.surfwelleaugsburg.de/swell/`) als JSON-Block im
 `<script id="historical-swell-data" type="application/json">`-Tag.
-Alle paar Tage / Wochen:
+
+**Automatisierter Ablauf (seit v1.5):** Alle paar Tage / Wochen:
 
 1. Pegelstand-Seite (`/swell/`) im Browser öffnen und als HTML speichern
-2. JSON-Block extrahieren und in CSV umwandeln — am einfachsten über
-   das mitgelieferte `convert_surfwelle.py` (Doppelklick auf
-   `Surfwelle_aktualisieren.bat` unter Windows)
-3. Die fertige CSV auf GitHub hochladen und die bestehende ersetzen
+   (Strg+U → Seitenquelltext kopieren → als `.html` speichern)
+2. Die HTML-Datei in den Ordner `data/incoming/` auf GitHub hochladen und
+   committen
+3. Fertig — ein GitHub-Actions-Workflow (`Convert surfwelle HTML`)
+   erkennt den Upload automatisch, wandelt die Datei in CSV-Zeilen um,
+   merged sie in `data/surfwelle_manual.csv` (alte Daten bleiben erhalten,
+   Zeitstempel-Dedup) und löscht die HTML-Datei danach selbst wieder
+
+Kein lokales Python-Skript und kein manueller CSV-Upload mehr nötig.
+`convert_surfwelle.py` und `Surfwelle_aktualisieren.bat` bleiben im Repo
+als Fallback, falls der Workflow mal nicht verfügbar ist (z.B. GitHub-Ausfall)
+und man lokal konvertieren möchte.
 
 ## Daten anschauen
 

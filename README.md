@@ -3,6 +3,15 @@
 Sammelt automatisch alle 15 Minuten Pegel- und Wetterdaten rund um die
 Surfwelle am Senkelbach in Augsburg, um eine Pegel-Prognose zu bauen.
 
+## 🌊 Live-Prognose ansehen
+
+**→ [bedaworo.github.io/surfwelle-data](https://bedaworo.github.io/surfwelle-data/)**
+
+Interaktives Chart: aktuelle Welle, 8-Stunden-Abflussprognose (bias-korrigiert),
+2–3-Tage-Regen-Ausblick über 7 Einzugs-Punkte, plus Skill-Auswertung (MAE,
+Treffergenauigkeit) gegen die real gemessenen Werte. Zieht sich die Daten live
+aus `data/collected.csv` und `data/surfwelle_manual.csv` in diesem Repo.
+
 ## Was wird gesammelt
 
 ### Pegelkette Wertach (von Quelle bis Augsburg)

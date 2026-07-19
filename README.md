@@ -65,6 +65,27 @@ Kempten ist als Forecast-Quelle **raus** (liegt im Iller-EZG, speist die Wertach
 nicht); die alten `forecast_rain_kempten_*` Spalten bleiben aus Kontinuitätsgründen
 erhalten, werden aber nicht mehr befüllt.
 
+### Bodenfeuchte als Zustandsvariable (v1.6)
+
+Wie schnell und wie stark Regen im Fluss ankommt, hängt stark vom Sättigungs­zustand
+des Gebiets ab (trockener Boden schluckt, nasser leitet fast 1:1 weiter). Als Proxy
+dafür wird die volumetrische Bodenfeuchte (m³/m³) aus dem ECMWF-IFS-Modell in vier
+Tiefen an zwei repräsentativen Punkten geloggt:
+
+| Punkt | Rolle |
+|---|---|
+| Oberjoch | alpines Quellgebiet, Hauptabflussbildung |
+| Kaufbeuren | Mittellauf / Tallage |
+
+Tiefen: `0_to_7cm` (Infiltrationskapazität), `7_to_28cm`, `28_to_100cm` und
+`100_to_255cm` (die tiefen Schichten als träger Grundwasser-/Sättigungs-Proxy).
+Spalten: `soil_moist_<punkt>_<tiefe>` plus ein gemeinsamer `soil_moisture_time`.
+
+**Dies ist Schritt 0 einer schrittweisen Prognose-Roadmap: vorerst nur Logging,
+noch kein Modell-Einbau.** Ob die Bodenfeuchte den variablen Abflussbeiwert
+tatsächlich erklärt, wird nach ein paar Regenereignissen ausgewertet — erst dann
+wird entschieden, ob sie ins Prognosemodell aufgenommen wird.
+
 Alle 15 Minuten ein Lauf, ein Datenpunkt pro Lauf in `data/collected.csv`.
 
 ### Manuell ergänzt
@@ -112,7 +133,7 @@ Im Ordner `data/` liegen drei CSV-Dateien mit klarer Aufgabenteilung:
 
 | Datei | Wer pflegt | Inhalt |
 |---|---|---|
-| `collected.csv` | Bot, alle 15 Min | Pegel, Stausee, Wetter, Regen-Forecast (47 Spalten) |
+| `collected.csv` | Bot, alle 15 Min | Pegel, Stausee, Wetter, Regen-Forecast, Bodenfeuchte (56 Spalten) |
 | `surfwelle_manual.csv` | Mensch, alle 1-2 Wochen | Pegel der Surfwelle aus dem HTML |
 | `events.csv` | Mensch, bei Bedarf | Bachablässe, Wehrsteuerungen, Bauarbeiten |
 
@@ -123,10 +144,10 @@ zusammengejoint.
 
 ### Spalten in `collected.csv`
 
-Die CSV ist über mehrere Skript-Versionen gewachsen (aktuell 47 Spalten,
-Stand v1.5): Pegelkette und erstes Wetter (v1.x), Biessenhofen/Grüntensee/
-Oberjoch (v1.2), Singold/Bobingen (v1.3), HND-Regenstationen (v1.4) und die
-Regen-Vorhersage je Einzugs-Punkt (v1.5). Das Skript migriert die CSV
+Die CSV ist über mehrere Skript-Versionen gewachsen (aktuell 56 Spalten,
+Stand v1.6): Pegelkette und erstes Wetter (v1.x), Biessenhofen/Grüntensee/
+Oberjoch (v1.2), Singold/Bobingen (v1.3), HND-Regenstationen (v1.4), die
+Regen-Vorhersage je Einzugs-Punkt (v1.5) und Bodenfeuchte (v1.6). Das Skript migriert die CSV
 automatisch beim ersten Lauf nach einem Update: neue Spalten werden hinten
 angehängt, alte Zeilen bekommen leere Werte, niemand muss von Hand eingreifen
 (siehe `_migrate_csv_header` in `collect.py`).

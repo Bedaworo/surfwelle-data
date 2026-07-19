@@ -13,6 +13,9 @@ Sammelt alle 15 Minuten Daten zu:
   (Oberjoch, Nesselwang, Marktoberdorf, Bad Wörishofen, Türkheim,
   Schwabmünchen, Bobingen) — Basis für den laufzeitgewichteten
   2-3-Tage-Ausblick im Forecast-Chart. Kempten ist raus (Iller-EZG).
+- Open-Meteo: Bodenfeuchte in vier Tiefen an zwei Punkten [v1.6]
+  (Oberjoch, Kaufbeuren) — Zustandsvariable für den Abflussbeiwert.
+  Schritt 0 der Prognose-Roadmap: vorerst nur Logging.
 
 Jeder Lauf hängt eine Zeile an data/collected.csv an.
 
@@ -50,7 +53,7 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.5 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.6 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
@@ -151,6 +154,20 @@ CATCHMENT = {
     "bobingen":        (48.2700, 10.8300,  6),
 }
 
+# NEU v1.6 (Schritt 0 der Prognose-Roadmap): Bodenfeuchte als Zustandsvariable.
+# Open-Meteo liefert volumetrische Bodenfeuchte (m³/m³) in vier Tiefen aus dem
+# ECMWF-IFS-Modell. Die tiefen Schichten (28-100, 100-255 cm) sind ein träger
+# Grundwasser-/Sättigungs-Proxy, die obere (0-7 cm) die momentane Infiltrations-
+# kapazität. Wir loggen an zwei repräsentativen Punkten (Hauptabflussbildung oben,
+# Mittellauf), NICHT an allen sieben — Bodenfeuchte ist eine langsam variierende
+# Gebietsgröße, ein Gradient oben/mitte reicht. Vorerst nur Logging; der Einbau
+# ins Modell erfolgt erst, wenn die Analyse zeigt dass es den Abflussbeiwert erklärt.
+SOIL_POINTS = {
+    "oberjoch":   (47.5159, 10.4058),  # alpines Quellgebiet
+    "kaufbeuren": (47.8812, 10.6246),  # Mittellauf/Tallage
+}
+SOIL_LAYERS = ["0_to_7cm", "7_to_28cm", "28_to_100cm", "100_to_255cm"]
+
 
 # -----------------------------------------------------------------------------
 # Datenmodell
@@ -234,6 +251,19 @@ class Sample:
     forecast_rain_schwabmuenchen_24h_mm: Optional[float] = None
     forecast_rain_bobingen_6h_mm: Optional[float] = None
     forecast_rain_bobingen_24h_mm: Optional[float] = None
+
+    # NEUE Felder ab v1.6 — Bodenfeuchte (m³/m³, volumetrisch) als Zustandsvariable.
+    # Schritt 0 der Prognose-Roadmap: nur Logging, noch kein Modell-Einbau.
+    # Zwei Punkte × vier Tiefen + ein gemeinsamer Zeitstempel (gleiches Stundenraster).
+    soil_moist_oberjoch_0_to_7cm: Optional[float] = None
+    soil_moist_oberjoch_7_to_28cm: Optional[float] = None
+    soil_moist_oberjoch_28_to_100cm: Optional[float] = None
+    soil_moist_oberjoch_100_to_255cm: Optional[float] = None
+    soil_moist_kaufbeuren_0_to_7cm: Optional[float] = None
+    soil_moist_kaufbeuren_7_to_28cm: Optional[float] = None
+    soil_moist_kaufbeuren_28_to_100cm: Optional[float] = None
+    soil_moist_kaufbeuren_100_to_255cm: Optional[float] = None
+    soil_moisture_time: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
@@ -441,6 +471,61 @@ def fetch_catchment_forecast() -> dict:
     return out
 
 
+def fetch_soil_moisture() -> dict:
+    """
+    Holt die volumetrische Bodenfeuchte (m³/m³) für alle SOIL_POINTS in EINER
+    Multi-Location-Anfrage, jeweils den Wert zur aktuellen Stunde.
+
+    Rückgabe: {name: {layer: wert, ..., "time": iso}}.
+    Ausfall -> leeres Dict; einzelne Punkte ohne Werte fehlen im Dict.
+    """
+    names = list(SOIL_POINTS.keys())
+    lats = ",".join(str(SOIL_POINTS[n][0]) for n in names)
+    lons = ",".join(str(SOIL_POINTS[n][1]) for n in names)
+    variables = ",".join(f"soil_moisture_{layer}" for layer in SOIL_LAYERS)
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lats,
+        "longitude": lons,
+        "hourly": variables,
+        "timezone": "Europe/Berlin",
+        "forecast_days": 1,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        log.warning("Open-Meteo Bodenfeuchte fehlgeschlagen: %s", e)
+        return {}
+
+    locs = data if isinstance(data, list) else [data]
+    now = datetime.now()
+    current_hour_str = now.strftime("%Y-%m-%dT%H:00")
+
+    out: dict = {}
+    for name, loc in zip(names, locs):
+        hourly = loc.get("hourly", {})
+        times = hourly.get("time", []) or []
+        if not times:
+            log.warning("Open-Meteo Bodenfeuchte %s — keine Stundenwerte", name)
+            continue
+        try:
+            idx = times.index(current_hour_str)
+        except ValueError:
+            idx = 0
+        entry = {"time": times[idx]}
+        for layer in SOIL_LAYERS:
+            series = hourly.get(f"soil_moisture_{layer}", []) or []
+            entry[layer] = series[idx] if idx < len(series) else None
+        out[name] = entry
+        log.info(
+            "Open-Meteo Bodenfeuchte %s ✓ 0-7cm=%s, 28-100cm=%s (m³/m³)",
+            name, entry.get("0_to_7cm"), entry.get("28_to_100cm"),
+        )
+    return out
+
+
 # -----------------------------------------------------------------------------
 # CSV-Append
 # -----------------------------------------------------------------------------
@@ -584,6 +669,13 @@ def collect() -> Sample:
     for name, fc in forecasts.items():
         setattr(sample, f"forecast_rain_{name}_6h_mm", fc.get("next_6h"))
         setattr(sample, f"forecast_rain_{name}_24h_mm", fc.get("next_24h"))
+
+    # NEU v1.6: Bodenfeuchte als Zustandsvariable (Schritt 0 der Roadmap, nur Logging).
+    soil = fetch_soil_moisture()
+    for name, entry in soil.items():
+        for layer in SOIL_LAYERS:
+            setattr(sample, f"soil_moist_{name}_{layer}", entry.get(layer))
+        sample.soil_moisture_time = entry.get("time")
 
     return sample
 

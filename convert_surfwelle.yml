@@ -1,0 +1,78 @@
+name: Convert surfwelle HTML
+
+# Läuft automatisch, sobald eine oder mehrere HTML-Dateien in data/incoming/
+# hochgeladen und committed werden. Führt convert_surfwelle.py aus (inkl.
+# Merge-Logik und Spike-Filter), pflegt die Daten in data/surfwelle_manual.csv
+# ein und räumt die verarbeiteten HTML-Dateien wieder weg.
+#
+# Manuelle Ausführung (workflow_dispatch) ist ebenfalls möglich, falls z.B.
+# ein vorheriger Lauf fehlgeschlagen ist und man es erneut anstoßen will.
+
+on:
+  push:
+    paths:
+      - 'data/incoming/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Eigene Concurrency-Gruppe, damit dieser Workflow sich nicht mit
+# "Collect water data" gegenseitig blockiert. Gelegentliche Push-Konflikte
+# zwischen beiden Workflows werden über die Retry-Schleife unten abgefangen.
+concurrency:
+  group: surfwelle-convert
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Convert uploaded HTML files
+        run: |
+          set -e
+          shopt -s nullglob
+          files=(data/incoming/*.html data/incoming/*.htm)
+
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Keine HTML-Dateien in data/incoming/ gefunden - nichts zu tun."
+            exit 0
+          fi
+
+          for f in "${files[@]}"; do
+            echo "=== Verarbeite $f ==="
+            # Nur löschen wenn die Konvertierung wirklich geklappt hat (set -e
+            # sorgt zusätzlich dafür, dass der ganze Schritt bei einem Fehler
+            # sofort abbricht). So bleibt eine fehlerhafte HTML-Datei erhalten
+            # und der Workflow schlägt sichtbar fehl (rotes Kreuz in Actions),
+            # statt die Datei stillschweigend zu verwerfen.
+            python convert_surfwelle.py "$f" data/surfwelle_manual.csv
+            rm "$f"
+            echo ""
+          done
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain data/)" ]; then
+            git add data/
+            git commit -m "surfwelle: HTML konvertiert und eingepflegt ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+            for i in 1 2 3; do
+              git pull --rebase origin "${GITHUB_REF_NAME}" && git push && break
+              echo "Push attempt $i failed, retrying..."
+              sleep 5
+            done
+          else
+            echo "Keine Änderungen zu committen."
+          fi

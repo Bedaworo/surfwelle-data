@@ -41,6 +41,14 @@ jobs:
       - name: Run collector
         run: python collect.py
 
+      - name: Fetch swell report (public page, no login)
+        # continue-on-error: falls sich die Seitenstruktur mal ändert und die
+        # Regex-Extraktion fehlschlägt, soll das NICHT die Pegel/Wetter-Daten
+        # blockieren. Der Schritt wird dann rot markiert (sichtbar in Actions),
+        # aber der Rest läuft normal weiter.
+        run: python fetch_swell.py
+        continue-on-error: true
+
       - name: Commit and push CSV
         run: |
           git config user.name "github-actions[bot]"
@@ -57,3 +65,4 @@ jobs:
           else
             echo "Keine neuen Daten zu committen."
           fi
+          

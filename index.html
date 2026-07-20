@@ -90,6 +90,7 @@ function rainOutlook(idx){if(idx==null)return null;const pts=[[0,24],[12,34],[30
   return{center:c,lo:Math.max(15,c-spread),hi:c+spread,chance,idx};}
 
 const HOUR=3600e3, floorH=ms=>Math.floor(ms/HOUR)*HOUR;
+const QUARTER=900e3; // 15 Min — Raster für die feine Prognose-/Wellen-Anzeige (nur Zeichnen, nicht Skill/Bias)
 
 /* ===== Zeitzonen-Fallback für surfwelle_manual.csv =====
    Die Datei enthält zwei Zeitstempel-Formate: älter MIT Offset (z.B. "+02:00",
@@ -200,6 +201,29 @@ async function build(){
     series.push({t:h,wave:waveH[h]??null,fore:(peak!=null)?Math.round(transfer(peak)*10)/10:null,flow:peak,
       idx:idx,ro:(idx!=null)?rainOutlook(idx):null});}
   addBiasCorrection(series);
+  // Echte (ungerundete) Jetzt-Zeit — NUR für die "jetzt"-Linie und die feinen
+  // Anzeige-Serien. Skill/Bias/Prognose-Basis bleiben auf der Stunden-"now"
+  // (siehe oben), damit sich an der Kalibrierung nichts ändert.
+  const trueNow=Date.now();
+  // Feine (native) Prognose-Reihe NUR fürs Zeichnen — nutzt die rohen Türkheim-
+  // Messwerte (alle ~15 Min) statt der Stunden-Mittel (flowH), per Sliding-Window
+  // über dasselbe Zeitfenster [h-(LAG+2)h, h-(LAG-2)h] wie die Stunden-Prognose.
+  // addBiasCorrection läuft weiterhin NUR auf der Stunden-Serie; hier wird der
+  // zuletzt bekannte Stunden-Bias einfach auf die feinen Punkte übertragen.
+  const flowPts=[];
+  for(const r of collected){const ms=Date.parse(r.collected_at),v=parseFloat(r.tuerkheim_q_m3s);if(isNaN(ms)||isNaN(v))continue;flowPts.push({t:ms,v});}
+  flowPts.sort((a,b)=>a.t-b.t);
+  const biasByHour={};for(const d of series)biasByHour[d.t]=d.bias;
+  const foreFine=[];
+  let lo=0;
+  for(let h=start;h<=end;h+=QUARTER){
+    const w0=h-(LAG+2)*HOUR, w1=h-(LAG-2)*HOUR;
+    while(lo<flowPts.length&&flowPts[lo].t<w0)lo++;
+    let peak=null;for(let i=lo;i<flowPts.length&&flowPts[i].t<=w1;i++)if(peak==null||flowPts[i].v>peak)peak=flowPts[i].v;
+    const fore=(peak!=null)?Math.round(transfer(peak)*10)/10:null;
+    const bias=biasByHour[floorH(h)]??null;
+    foreFine.push({t:h,fore,foreCorr:(fore!=null&&bias!=null)?Math.round((fore+bias)*10)/10:null});
+  }
   // Feine (native) Wellenhöhen-Reihe NUR fürs Zeichnen der "gemessen"-Linie —
   // nutzt die echte Update-Frequenz (alle 15 Min via fetch_swell.py) statt der
   // Stunden-Bins. Prognose/Bias/Skill bleiben bewusst auf der Stunden-Serie
@@ -208,7 +232,7 @@ async function build(){
   for(const r of swell){const t=parseSwellTime(r.time),v=parseFloat(r.percent);if(isNaN(t)||isNaN(v))continue;
     waveFine.push({t,wave:v});}
   waveFine.sort((a,b)=>a.t-b.t);
-  render(series,now,rainOk,Date.now(),curFlow,waveFine); // echte (nicht gerundete) Ladezeit für die "Stand"-Anzeige
+  render(series,now,rainOk,Date.now(),curFlow,waveFine,trueNow,foreFine); // echte (nicht gerundete) Ladezeit für die "Stand"-Anzeige
 }
 /* ===== Rückblick-Stufen synchron zur Swell-Seite (Stunden) ===== */
 const PAST_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[168,"7 T"],[336,"14 T"]];
@@ -221,8 +245,8 @@ try{
   if(sp)S.past=+sp;
   if(sf)S.fore=+sf;
 }catch(e){/* localStorage blockiert (z.B. private mode) -> einfach bei 12/12 bleiben */}
-function render(series,now,rainOk,loadTime,curFlow,waveFine){
-  S.series=series;S.now=now;S.waveFine=waveFine||[];
+function render(series,now,rainOk,loadTime,curFlow,waveFine,trueNow,foreFine){
+  S.series=series;S.now=now;S.waveFine=waveFine||[];S.trueNow=trueNow??now;S.foreFine=foreFine||[];
   const past=series.filter(d=>d.t<=now), cur=[...past].reverse().find(d=>d.wave!=null), curWave=cur?cur.wave:null;
   const fut8=series.filter(d=>d.t>now&&d.t<=now+8*HOUR&&d.fore!=null), fore8=fut8.length?Math.max(...fut8.map(d=>d.fore)):null;
   const roFut=series.filter(d=>d.t>now+8*HOUR&&d.ro), bestRo=roFut.length?roFut.reduce((a,b)=>b.ro.chance>a.ro.chance?b:a):null;
@@ -318,7 +342,8 @@ function draw(){
   const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,cssW,cssH);
   const X=t=>PAD.l+(t-from)/(to-from)*(cssW-PAD.l-PAD.r), Y=v=>PAD.t+(1-v/100)*(cssH-PAD.t-PAD.b);
   const waveFine=(S.waveFine||[]).filter(d=>d.t>=from&&d.t<=to);
-  GEO={X,Y,from,to,data,waveFine};
+  const foreFine=(S.foreFine||[]).filter(d=>d.t>=from&&d.t<=to);
+  GEO={X,Y,from,to,data,waveFine,foreFine};
   g.fillStyle="rgba(87,217,138,.10)";g.fillRect(PAD.l,Y(GOOD),cssW-PAD.l-PAD.r,Y(SURF)-Y(GOOD));
   g.fillStyle="rgba(255,210,74,.09)";g.fillRect(PAD.l,PAD.t,cssW-PAD.l-PAD.r,Y(GOOD)-PAD.t);
   g.font="10px "+getComputedStyle(document.body).getPropertyValue('--mono');g.textAlign="right";g.textBaseline="middle";
@@ -346,13 +371,13 @@ function draw(){
     g.closePath();g.fill();
     g.strokeStyle="#a98be0";g.lineWidth=1.6;g.setLineDash([2,3]);g.beginPath();
     ro.forEach((d,i)=>{const x=X(d.t),y=Y(d.ro.center);i?g.lineTo(x,y):g.moveTo(x,y);});g.stroke();g.setLineDash([]);}}
-  // jetzt
-  g.strokeStyle="#e6f0f2";g.setLineDash([4,4]);g.lineWidth=1;g.beginPath();g.moveTo(X(S.now),PAD.t);g.lineTo(X(S.now),cssH-PAD.b);g.stroke();g.setLineDash([]);
-  g.fillStyle="#cfe3e7";g.textAlign="center";g.textBaseline="bottom";g.fillText("jetzt",X(S.now),PAD.t+11);
-  line(g,data,'fore',X,Y,"#f2b452",2,S.now);
+  // jetzt — echte Uhrzeit, nicht auf die Stunde gerundet
+  g.strokeStyle="#e6f0f2";g.setLineDash([4,4]);g.lineWidth=1;g.beginPath();g.moveTo(X(S.trueNow),PAD.t);g.lineTo(X(S.trueNow),cssH-PAD.b);g.stroke();g.setLineDash([]);
+  g.fillStyle="#cfe3e7";g.textAlign="center";g.textBaseline="bottom";g.fillText("jetzt",X(S.trueNow),PAD.t+11);
+  line(g,foreFine,'fore',X,Y,"#f2b452",2,S.trueNow);
   // Korrigierte Prognose: nur in der Zukunft zeichnen (Vergangenheit bleibt roh für den Backtest sichtbar)
-  const futCorr=data.map(d=>d.t>S.now?d:{...d,foreCorr:null});
-  line(g,futCorr,'foreCorr',X,Y,"#ec5eb0",1.8,null,[5,3]);
+  const futCorrFine=foreFine.map(d=>d.t>S.trueNow?d:{...d,foreCorr:null});
+  line(g,futCorrFine,'foreCorr',X,Y,"#ec5eb0",1.8,null,[5,3]);
   line(g,waveFine,'wave',X,Y,"#38c7d6",2.4,null);
   g.fillStyle="#e06b6b";data.forEach(d=>{if(d.t>S.now||d.wave==null||d.fore==null)return;
     if((d.fore>=SURF)!==(d.wave>=SURF)){g.beginPath();g.arc(X(d.t),Y(d.wave),2.6,0,7);g.fill();}});
@@ -372,18 +397,22 @@ function wireHover(){
   function move(e){if(!GEO)return;const rect=cv.getBoundingClientRect();const px=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;
     let best=null,bd=1e9;GEO.data.forEach(d=>{const dx=Math.abs(GEO.X(d.t)-px);if(dx<bd){bd=dx;best=d;}});
     if(!best||bd>40){tip.style.opacity=0;return;}
-    // Feinere Welle-Anzeige: nächster Punkt aus der 15-Min-Serie statt Stunden-Mittel
+    // Feinere Anzeige: nächster Punkt aus den 15-Min-Serien statt Stunden-Werten
     let bestWave=null,bwd=1e9;
     GEO.waveFine.forEach(d=>{const dx=Math.abs(GEO.X(d.t)-px);if(dx<bwd){bwd=dx;bestWave=d;}});
+    let bestFore=null,bfd=1e9;
+    GEO.foreFine.forEach(d=>{const dx=Math.abs(GEO.X(d.t)-px);if(dx<bfd){bfd=dx;bestFore=d;}});
     const waveVal=(bestWave&&bwd<=40)?bestWave.wave:best.wave;
+    const foreVal=(bestFore&&bfd<=40)?bestFore.fore:best.fore;
+    const foreCorrVal=(bestFore&&bfd<=40)?bestFore.foreCorr:best.foreCorr;
     const dt=new Date(best.t);let h=`<b>${dt.toLocaleString('de-DE',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</b>`;
     if(waveVal!=null)h+=`<br>Welle: ${waveVal.toFixed(0)} cm`;
-    if(best.fore!=null&&best.t<=S.now+8*HOUR)h+=`<br>Prognose: ${best.fore.toFixed(0)} cm`;
-    if(best.foreCorr!=null&&best.t>S.now)h+=`<br><span style="color:#ec5eb0">korrigiert: ${best.foreCorr.toFixed(0)} cm (Bias ${best.bias>0?'+':''}${best.bias.toFixed(1)})</span>`;
+    if(foreVal!=null&&best.t<=S.trueNow+8*HOUR)h+=`<br>Prognose: ${foreVal.toFixed(0)} cm`;
+    if(foreCorrVal!=null&&best.t>S.trueNow)h+=`<br><span style="color:#ec5eb0">korrigiert: ${foreCorrVal.toFixed(0)} cm (Bias ${best.bias>0?'+':''}${(best.bias??0).toFixed(1)})</span>`;
     if(best.flow!=null)h+=`<br>Türkheim: ${best.flow.toFixed(1)} m³/s`;
     if(best.ro)h+=`<br><span style="color:#a98be0">Ausblick: ${best.ro.lo.toFixed(0)}–${best.ro.hi.toFixed(0)} cm · ${Math.round(best.ro.chance*100)}%</span>`;
     if(best.idx!=null&&best.idx>0.5)h+=`<br>Zufluss-Index: ${best.idx.toFixed(1)}`;
-    tip.innerHTML=h;tip.style.left=GEO.X(best.t)+"px";tip.style.top=GEO.Y(waveVal??best.fore??(best.ro?best.ro.center:50))+"px";tip.style.opacity=1;}
+    tip.innerHTML=h;tip.style.left=GEO.X(best.t)+"px";tip.style.top=GEO.Y(waveVal??foreVal??(best.ro?best.ro.center:50))+"px";tip.style.opacity=1;}
   cv.onmousemove=move;cv.ontouchmove=move;cv.onmouseleave=()=>tip.style.opacity=0;
 }
 window.addEventListener("resize",draw);

@@ -112,6 +112,13 @@ function parseSwellTime(str){
   const guess=Date.parse(str+'Z');if(isNaN(guess))return NaN;  // naiv -> als Europe/Berlin lesen
   return guess-berlinOffsetMs(guess);
 }
+// Formatiert einen naiven HND-Zeitstempel ("YYYY-MM-DDTHH:MM:SS", Europe/Berlin)
+// als "TT.MM. HH:MM" für die Anzeige, ohne erneute Zeitzonenkonvertierung.
+function fmtHndTime(iso){
+  const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
+  if(!m)return iso;
+  return `${m[3]}.${m[2]}. ${m[4]}:${m[5]}`;
+}
 async function getCSV(name){const r=await fetch(REPO+name,{cache:"no-store"});if(!r.ok)throw new Error(name+" HTTP "+r.status);
   const rows=(await r.text()).trim().split(/\r?\n/),head=rows[0].split(",");
   return rows.slice(1).map(l=>{const c=l.split(","),o={};head.forEach((h,i)=>o[h.trim()]=c[i]);return o;});}
@@ -174,6 +181,18 @@ async function build(){
   for(const r of collected){const ms=Date.parse(r.collected_at),v=parseFloat(r.tuerkheim_q_m3s);if(isNaN(ms)||isNaN(v))continue;
     const h=floorH(ms);flowH[h]=(flowH[h]||0)+v;flowN[h]=(flowN[h]||0)+1;}
   for(const h in flowH)flowH[h]/=flowN[h];
+  // Echter Türkheim-Istwert (letzte tatsächliche HND-Messung, kein Lag/Fenster-Peak).
+  // tuerkheim_time ist ein naiver HND-Zeitstempel (Europe/Berlin, kein Offset) —
+  // parseSwellTime kann das schon korrekt interpretieren (siehe oben).
+  let curFlow={val:null,time:null,ageMin:null};
+  for(let i=collected.length-1;i>=0;i--){
+    const v=parseFloat(collected[i].tuerkheim_q_m3s);
+    if(isNaN(v))continue;
+    const t=collected[i].tuerkheim_time;
+    const trueMs=t?parseSwellTime(t):NaN;
+    curFlow={val:v,time:t,ageMin:isNaN(trueMs)?null:Math.round((Date.now()-trueMs)/60000)};
+    break;
+  }
   const now=floorH(Date.now()), start=now-15*24*HOUR, end=now+3*24*HOUR, series=[];
   for(let h=start;h<=end;h+=HOUR){
     let peak=null;for(let k=h-(LAG+2)*HOUR;k<=h-(LAG-2)*HOUR;k+=HOUR)if(flowH[k]!=null&&(peak==null||flowH[k]>peak))peak=flowH[k];
@@ -181,16 +200,29 @@ async function build(){
     series.push({t:h,wave:waveH[h]??null,fore:(peak!=null)?Math.round(transfer(peak)*10)/10:null,flow:peak,
       idx:idx,ro:(idx!=null)?rainOutlook(idx):null});}
   addBiasCorrection(series);
-  render(series,now,rainOk,Date.now()); // echte (nicht gerundete) Ladezeit für die "Stand"-Anzeige
+  // Feine (native) Wellenhöhen-Reihe NUR fürs Zeichnen der "gemessen"-Linie —
+  // nutzt die echte Update-Frequenz (alle 15 Min via fetch_swell.py) statt der
+  // Stunden-Bins. Prognose/Bias/Skill bleiben bewusst auf der Stunden-Serie
+  // (dafür sind LAG, CATCHMENT-Laufzeiten und BIAS_N kalibriert) — unverändert.
+  const waveFine=[];
+  for(const r of swell){const t=parseSwellTime(r.time),v=parseFloat(r.percent);if(isNaN(t)||isNaN(v))continue;
+    waveFine.push({t,wave:v});}
+  waveFine.sort((a,b)=>a.t-b.t);
+  render(series,now,rainOk,Date.now(),curFlow,waveFine); // echte (nicht gerundete) Ladezeit für die "Stand"-Anzeige
 }
 /* ===== Rückblick-Stufen synchron zur Swell-Seite (Stunden) ===== */
 const PAST_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[168,"7 T"],[336,"14 T"]];
 // Gleiche Abstufung wie Rückblick, aber gedeckelt bei 3 Tagen — weiter reicht
 // der Regen-Ausblick nicht (Open-Meteo-Forecast-Horizont).
 const FORE_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[72,"3 T"]];
-let S={series:[],now:0,past:48,fore:24};
-function render(series,now,rainOk,loadTime){
-  S.series=series;S.now=now;
+let S={series:[],now:0,past:12,fore:12};
+try{
+  const sp=localStorage.getItem('surfwelle_past_h'), sf=localStorage.getItem('surfwelle_fore_h');
+  if(sp)S.past=+sp;
+  if(sf)S.fore=+sf;
+}catch(e){/* localStorage blockiert (z.B. private mode) -> einfach bei 12/12 bleiben */}
+function render(series,now,rainOk,loadTime,curFlow,waveFine){
+  S.series=series;S.now=now;S.waveFine=waveFine||[];
   const past=series.filter(d=>d.t<=now), cur=[...past].reverse().find(d=>d.wave!=null), curWave=cur?cur.wave:null;
   const fut8=series.filter(d=>d.t>now&&d.t<=now+8*HOUR&&d.fore!=null), fore8=fut8.length?Math.max(...fut8.map(d=>d.fore)):null;
   const roFut=series.filter(d=>d.t>now+8*HOUR&&d.ro), bestRo=roFut.length?roFut.reduce((a,b)=>b.ro.chance>a.ro.chance?b:a):null;
@@ -203,7 +235,7 @@ function render(series,now,rainOk,loadTime){
     <div class="cards">
       <div class="card"><div class="k">Welle jetzt</div><div class="v" ${vC(curWave)}>${curWave!=null?curWave.toFixed(0):'—'}<span class="u"> cm</span></div><div class="verdict" ${vC(curWave)}>${vd(curWave)}</div></div>
       <div class="card"><div class="k">Prognose max · 8 h</div><div class="v" ${vC(fore8)}>${fore8!=null?fore8.toFixed(0):'—'}<span class="u"> cm</span></div><div class="verdict" ${vC(fore8)}>${fore8!=null?vd(fore8):'kein Zufluss'}</div></div>
-      <div class="card"><div class="k">Türkheim (Basis)</div><div class="v">${(cur?.flow??past.at(-1)?.flow)?.toFixed(1)??'—'}<span class="u"> m³/s</span></div><div class="verdict" style="color:var(--faint)">Schwelle ~9–10</div></div>
+      <div class="card"><div class="k">Türkheim (aktuell)</div><div class="v">${curFlow&&curFlow.val!=null?curFlow.val.toFixed(1):'—'}<span class="u"> m³/s</span></div><div class="verdict" style="color:${curFlow&&curFlow.ageMin!=null&&curFlow.ageMin>45?'var(--miss)':'var(--faint)'}">${curFlow&&curFlow.time?'Stand '+fmtHndTime(curFlow.time)+(curFlow.ageMin!=null?' · vor '+curFlow.ageMin+' min':''):'Schwelle ~9–10'}</div></div>
       <div class="card"><div class="k">Regen-Ausblick 3 T</div><div class="v" style="color:var(--rain)">${bestRo?Math.round(bestRo.ro.chance*100)+'%':'—'}</div><div class="verdict" style="color:var(--faint)">${bestRo&&bestRo.ro.chance>0.15?'Chance '+dayName(bestRo.t):'ruhig'}</div></div>
     </div>
     <div class="ctrls">
@@ -230,9 +262,13 @@ function render(series,now,rainOk,loadTime){
     <div class="note small"><b>Laufzeiten (geschätzt, Regen→Welle):</b> ${lagList}. Downstream-Punkte (Schwabmünchen, Bobingen) fließen an Türkheim vorbei – sie können Wasser anzeigen, das die 8h-Abflussprognose gar nicht sieht.</div>
   `;
   document.querySelectorAll("[data-p]").forEach(b=>{if(+b.dataset.p===S.past)b.classList.add("on");
-    b.onclick=()=>{S.past=+b.dataset.p;document.querySelectorAll("[data-p]").forEach(x=>x.classList.remove("on"));b.classList.add("on");draw();skill();};});
+    b.onclick=()=>{S.past=+b.dataset.p;document.querySelectorAll("[data-p]").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+      try{localStorage.setItem('surfwelle_past_h',S.past);}catch(e){}
+      draw();skill();};});
   document.querySelectorAll("[data-f]").forEach(b=>{if(+b.dataset.f===S.fore)b.classList.add("on");
-    b.onclick=()=>{S.fore=+b.dataset.f;document.querySelectorAll("[data-f]").forEach(x=>x.classList.remove("on"));b.classList.add("on");draw();};});
+    b.onclick=()=>{S.fore=+b.dataset.f;document.querySelectorAll("[data-f]").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+      try{localStorage.setItem('surfwelle_fore_h',S.fore);}catch(e){}
+      draw();};});
   document.getElementById("updated").textContent="Aktualisiert "+new Date(loadTime).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})+" · Daten stündl. gerastert";
   draw();skill();wireHover();
 }
@@ -281,7 +317,8 @@ function draw(){
   cv.width=cssW*dpr;cv.height=cssH*dpr;cv.style.height=cssH+"px";
   const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,cssW,cssH);
   const X=t=>PAD.l+(t-from)/(to-from)*(cssW-PAD.l-PAD.r), Y=v=>PAD.t+(1-v/100)*(cssH-PAD.t-PAD.b);
-  GEO={X,Y,from,to,data};
+  const waveFine=(S.waveFine||[]).filter(d=>d.t>=from&&d.t<=to);
+  GEO={X,Y,from,to,data,waveFine};
   g.fillStyle="rgba(87,217,138,.10)";g.fillRect(PAD.l,Y(GOOD),cssW-PAD.l-PAD.r,Y(SURF)-Y(GOOD));
   g.fillStyle="rgba(255,210,74,.09)";g.fillRect(PAD.l,PAD.t,cssW-PAD.l-PAD.r,Y(GOOD)-PAD.t);
   g.font="10px "+getComputedStyle(document.body).getPropertyValue('--mono');g.textAlign="right";g.textBaseline="middle";
@@ -316,7 +353,7 @@ function draw(){
   // Korrigierte Prognose: nur in der Zukunft zeichnen (Vergangenheit bleibt roh für den Backtest sichtbar)
   const futCorr=data.map(d=>d.t>S.now?d:{...d,foreCorr:null});
   line(g,futCorr,'foreCorr',X,Y,"#ec5eb0",1.8,null,[5,3]);
-  line(g,data,'wave',X,Y,"#38c7d6",2.4,null);
+  line(g,waveFine,'wave',X,Y,"#38c7d6",2.4,null);
   g.fillStyle="#e06b6b";data.forEach(d=>{if(d.t>S.now||d.wave==null||d.fore==null)return;
     if((d.fore>=SURF)!==(d.wave>=SURF)){g.beginPath();g.arc(X(d.t),Y(d.wave),2.6,0,7);g.fill();}});
 }
@@ -335,14 +372,18 @@ function wireHover(){
   function move(e){if(!GEO)return;const rect=cv.getBoundingClientRect();const px=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;
     let best=null,bd=1e9;GEO.data.forEach(d=>{const dx=Math.abs(GEO.X(d.t)-px);if(dx<bd){bd=dx;best=d;}});
     if(!best||bd>40){tip.style.opacity=0;return;}
+    // Feinere Welle-Anzeige: nächster Punkt aus der 15-Min-Serie statt Stunden-Mittel
+    let bestWave=null,bwd=1e9;
+    GEO.waveFine.forEach(d=>{const dx=Math.abs(GEO.X(d.t)-px);if(dx<bwd){bwd=dx;bestWave=d;}});
+    const waveVal=(bestWave&&bwd<=40)?bestWave.wave:best.wave;
     const dt=new Date(best.t);let h=`<b>${dt.toLocaleString('de-DE',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</b>`;
-    if(best.wave!=null)h+=`<br>Welle: ${best.wave.toFixed(0)} cm`;
+    if(waveVal!=null)h+=`<br>Welle: ${waveVal.toFixed(0)} cm`;
     if(best.fore!=null&&best.t<=S.now+8*HOUR)h+=`<br>Prognose: ${best.fore.toFixed(0)} cm`;
     if(best.foreCorr!=null&&best.t>S.now)h+=`<br><span style="color:#ec5eb0">korrigiert: ${best.foreCorr.toFixed(0)} cm (Bias ${best.bias>0?'+':''}${best.bias.toFixed(1)})</span>`;
     if(best.flow!=null)h+=`<br>Türkheim: ${best.flow.toFixed(1)} m³/s`;
     if(best.ro)h+=`<br><span style="color:#a98be0">Ausblick: ${best.ro.lo.toFixed(0)}–${best.ro.hi.toFixed(0)} cm · ${Math.round(best.ro.chance*100)}%</span>`;
     if(best.idx!=null&&best.idx>0.5)h+=`<br>Zufluss-Index: ${best.idx.toFixed(1)}`;
-    tip.innerHTML=h;tip.style.left=GEO.X(best.t)+"px";tip.style.top=GEO.Y(best.wave??best.fore??(best.ro?best.ro.center:50))+"px";tip.style.opacity=1;}
+    tip.innerHTML=h;tip.style.left=GEO.X(best.t)+"px";tip.style.top=GEO.Y(waveVal??best.fore??(best.ro?best.ro.center:50))+"px";tip.style.opacity=1;}
   cv.onmousemove=move;cv.ontouchmove=move;cv.onmouseleave=()=>tip.style.opacity=0;
 }
 window.addEventListener("resize",draw);

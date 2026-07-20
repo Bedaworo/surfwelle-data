@@ -16,6 +16,14 @@ Sammelt alle 15 Minuten Daten zu:
 - Open-Meteo: Bodenfeuchte in vier Tiefen an zwei Punkten [v1.6]
   (Oberjoch, Kaufbeuren) — Zustandsvariable für den Abflussbeiwert.
   Schritt 0 der Prognose-Roadmap: vorerst nur Logging.
+- HND Pegel Türkheim (Wertach) — zusätzlich Wasserstand [v1.7]
+  Bisher wurde an der wichtigsten Messstelle (Kombi-Regel >7 m³/s) nur Q
+  erfasst. Zusammen mit W lässt sich v_relativ = Q/W bilden, um zu prüfen,
+  ob die Fließgeschwindigkeit die Laufzeit bis zur Welle beeinflusst
+  (analog bereits vorhanden bei Biessenhofen, Oberhausen, Singold).
+- HND Pegel Haslach Werksabfluss (Wertach) — Abfluss + Wasserstand [v1.8]
+  Gesteuerter Kraftwerksausleitung-Abfluss direkt unterhalb des Grüntensees.
+  Ergänzt den reinen Seepegel um einen echten Q-Wert an derselben Stelle.
 
 Jeder Lauf hängt eine Zeile an data/collected.csv an.
 
@@ -53,12 +61,21 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.6 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.8 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
     "https://www.hnd.bayern.de/pegel/iller_lech/tuerkheim-12406008/tabelle"
     "?methode=abfluss&setdiskr=15"
+)
+# NEU v1.7: Türkheim Wasserstand — bisher fehlte hier W, obwohl Türkheim die
+# wichtigste Messstelle für die Kombi-Regel (>7 m³/s) ist. Zusammen mit Q lässt
+# sich daraus v_relativ = Q/W bilden, um zu testen ob die Fließgeschwindigkeit
+# einen Einfluss auf die Laufzeit "Wasser an der Welle" hat (an allen Stellen
+# getrackt, an denen W verfügbar ist: Türkheim, Biessenhofen, Oberhausen, Singold).
+HND_TUERKHEIM_W_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/tuerkheim-12406008/tabelle"
+    "?methode=wasserstand&setdiskr=15"
 )
 HND_OBERHAUSEN_Q_URL = (
     "https://www.hnd.bayern.de/pegel/donau_bis_kelheim/augsburg-oberhausen-12407000/tabelle"
@@ -81,6 +98,18 @@ HND_BIESSENHOFEN_W_URL = (
 HND_GRUENTENSEE_URL = (
     "https://www.hnd.bayern.de/speicher/iller_lech/gruentensee-seepegel-12403000/tabelle"
     "?methode=seewasserstand&setdiskr=15"
+)
+# NEU v1.8: Haslach Werksabfluss — der gesteuerte Abfluss direkt unterhalb des
+# Grüntensees (Kraftwerksausleitung). Ergänzt den reinen Seepegel um einen
+# echten Q-Wert an derselben Stelle, sodass sich auch hier v_relativ = Q/W
+# bilden lässt (auf Vorschlag des Nutzers, analog zu Türkheim/Biessenhofen).
+HND_HASLACH_Q_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/haslach-werksabfluss-12404002/tabelle"
+    "?methode=abfluss&setdiskr=15"
+)
+HND_HASLACH_W_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/haslach-werksabfluss-12404002/tabelle"
+    "?methode=wasserstand&setdiskr=15"
 )
 # NEU v1.3: Singold (Pegel Langerringen) — laut Wikipedia mündet die Singold
 # über den ausgeleiteten Kanal "Senkelbach" in Göggingen in die Wertach.
@@ -264,6 +293,16 @@ class Sample:
     soil_moist_kaufbeuren_28_to_100cm: Optional[float] = None
     soil_moist_kaufbeuren_100_to_255cm: Optional[float] = None
     soil_moisture_time: Optional[str] = None
+
+    # NEUE Felder ab v1.7 — Türkheim Wasserstand (siehe HND_TUERKHEIM_W_URL oben)
+    tuerkheim_w_cm: Optional[float] = None
+    tuerkheim_w_time: Optional[str] = None
+
+    # NEUE Felder ab v1.8 — Haslach Werksabfluss (siehe HND_HASLACH_*_URL oben)
+    haslach_q_m3s: Optional[float] = None
+    haslach_q_time: Optional[str] = None
+    haslach_w_cm: Optional[float] = None
+    haslach_w_time: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
@@ -606,6 +645,8 @@ def collect() -> Sample:
     # Bestehende HND-Pegel
     if r := fetch_hnd(HND_TUERKHEIM_URL, "Türkheim Q"):
         sample.tuerkheim_time, sample.tuerkheim_q_m3s = r
+    if r := fetch_hnd(HND_TUERKHEIM_W_URL, "Türkheim W"):
+        sample.tuerkheim_w_time, sample.tuerkheim_w_cm = r
     if r := fetch_hnd(HND_OBERHAUSEN_Q_URL, "Oberhausen Q"):
         sample.oberhausen_q_time, sample.oberhausen_q_m3s = r
     if r := fetch_hnd(HND_OBERHAUSEN_W_URL, "Oberhausen W"):
@@ -620,6 +661,12 @@ def collect() -> Sample:
     # NEU: Grüntensee Seepegel
     if r := fetch_hnd(HND_GRUENTENSEE_URL, "Grüntensee W"):
         sample.gruentensee_w_time, sample.gruentensee_w_mnn = r
+
+    # NEU v1.8: Haslach Werksabfluss (gesteuerter Abfluss unterhalb Grüntensee)
+    if r := fetch_hnd(HND_HASLACH_Q_URL, "Haslach Q"):
+        sample.haslach_q_time, sample.haslach_q_m3s = r
+    if r := fetch_hnd(HND_HASLACH_W_URL, "Haslach W"):
+        sample.haslach_w_time, sample.haslach_w_cm = r
 
     # NEU v1.3: Singold (Pegel Langerringen) — wichtiger Direkt-Zubringer
     # zum Senkelbach via "Singold-Senkelbach"-Überleitung

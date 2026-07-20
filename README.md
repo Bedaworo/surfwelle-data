@@ -19,9 +19,20 @@ aus `data/collected.csv` und `data/surfwelle_manual.csv` in diesem Repo.
 | Quelle | Daten | Fluss-km | Bedeutung |
 |---|---|---|---|
 | HND Bayern | Grüntensee Seepegel — Wasserstand (m ü. NN) | ~130 | Pufferspeicher am Anfang |
+| HND Bayern | Haslach Werksabfluss / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~128 | Gesteuerte Kraftwerksausleitung direkt unterhalb Grüntensee |
 | HND Bayern | Biessenhofen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~80 | Nach Speicher, vor Mittellauf |
-| HND Bayern | Türkheim / Wertach — Abfluss (m³/s) | ~42 | Hauptsignal kurz vor Augsburg |
+| HND Bayern | Türkheim / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~42 | Hauptsignal kurz vor Augsburg |
 | HND Bayern | Augsburg-Oberhausen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~3 | Nach Wertachkanal-Abzweig |
+
+An allen fünf Stellen außer dem reinen Seepegel liegen jetzt sowohl Abfluss (Q)
+als auch Wasserstand (W) vor (Türkheim seit v1.7, Haslach seit v1.8). Damit lässt
+sich pro Messstelle ein grober Fließgeschwindigkeits-Proxy `v_relativ = Q / W`
+bilden — Ziel ist zu prüfen, ob die Fließgeschwindigkeit einen messbaren Einfluss
+auf die Laufzeit „Regen/Abflusspeak → Wasser an der Welle" hat. Wichtig dabei:
+`v_relativ` ist wegen des unbekannten, nicht-linearen Bachbett-Querschnitts kein
+exakter physikalischer Wert, sondern nur als **relativer Trend zwischen zwei
+Zeitpunkten an derselben Messstelle** aussagekräftig (siehe Diskussion in den
+Commit-Notizen zu v1.7/v1.8).
 
 ### Wetter — aktuelle Beobachtungen (DWD-Daten via Open-Meteo)
 
@@ -142,7 +153,7 @@ Im Ordner `data/` liegen drei CSV-Dateien mit klarer Aufgabenteilung:
 
 | Datei | Wer pflegt | Inhalt |
 |---|---|---|
-| `collected.csv` | Bot, alle 15 Min | Pegel, Stausee, Wetter, Regen-Forecast, Bodenfeuchte (56 Spalten) |
+| `collected.csv` | Bot, alle 15 Min | Pegel, Stausee, Wetter, Regen-Forecast, Bodenfeuchte (62 Spalten) |
 | `surfwelle_manual.csv` | Mensch, alle 1-2 Wochen | Pegel der Surfwelle aus dem HTML |
 | `events.csv` | Mensch, bei Bedarf | Bachablässe, Wehrsteuerungen, Bauarbeiten |
 
@@ -153,13 +164,14 @@ zusammengejoint.
 
 ### Spalten in `collected.csv`
 
-Die CSV ist über mehrere Skript-Versionen gewachsen (aktuell 56 Spalten,
-Stand v1.6): Pegelkette und erstes Wetter (v1.x), Biessenhofen/Grüntensee/
+Die CSV ist über mehrere Skript-Versionen gewachsen (aktuell 62 Spalten,
+Stand v1.8): Pegelkette und erstes Wetter (v1.x), Biessenhofen/Grüntensee/
 Oberjoch (v1.2), Singold/Bobingen (v1.3), HND-Regenstationen (v1.4), die
-Regen-Vorhersage je Einzugs-Punkt (v1.5) und Bodenfeuchte (v1.6). Das Skript migriert die CSV
-automatisch beim ersten Lauf nach einem Update: neue Spalten werden hinten
-angehängt, alte Zeilen bekommen leere Werte, niemand muss von Hand eingreifen
-(siehe `_migrate_csv_header` in `collect.py`).
+Regen-Vorhersage je Einzugs-Punkt (v1.5), Bodenfeuchte (v1.6), Türkheim-
+Wasserstand (v1.7) und Haslach Werksabfluss Q+W (v1.8). Das Skript migriert
+die CSV automatisch beim ersten Lauf nach einem Update: neue Spalten werden
+hinten angehängt, alte Zeilen bekommen leere Werte, niemand muss von Hand
+eingreifen (siehe `_migrate_csv_header` in `collect.py`).
 
 ## Manuelle Datenpflege
 

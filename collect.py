@@ -61,7 +61,7 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.8 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.9 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
@@ -109,6 +109,34 @@ HND_HASLACH_Q_URL = (
 )
 HND_HASLACH_W_URL = (
     "https://www.hnd.bayern.de/pegel/iller_lech/haslach-werksabfluss-12404002/tabelle"
+    "?methode=wasserstand&setdiskr=15"
+)
+# NEU v1.9: drei weitere Wertach-Pegel, um die Fließwellen-Kette lückenlos zu
+# machen (für detect_flood_waves.py). Wertach + Sebastianskapelle liegen OBERHALB
+# des Grüntensees (scharfe, ungepufferte Welle), Thalhofen unterhalb. Damit wird
+# die Peak-Verkettung engmaschig genug, dass Fehlzuordnungen wegfallen.
+HND_WERTACH_Q_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/wertach-12401004/tabelle"
+    "?methode=abfluss&setdiskr=15"
+)
+HND_WERTACH_W_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/wertach-12401004/tabelle"
+    "?methode=wasserstand&setdiskr=15"
+)
+HND_SEBASTIANSKAPELLE_Q_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/sebastianskapelle-12402007/tabelle"
+    "?methode=abfluss&setdiskr=15"
+)
+HND_SEBASTIANSKAPELLE_W_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/sebastianskapelle-12402007/tabelle"
+    "?methode=wasserstand&setdiskr=15"
+)
+HND_THALHOFEN_Q_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/thalhofen-12404705/tabelle"
+    "?methode=abfluss&setdiskr=15"
+)
+HND_THALHOFEN_W_URL = (
+    "https://www.hnd.bayern.de/pegel/iller_lech/thalhofen-12404705/tabelle"
     "?methode=wasserstand&setdiskr=15"
 )
 # NEU v1.3: Singold (Pegel Langerringen) — laut Wikipedia mündet die Singold
@@ -303,6 +331,20 @@ class Sample:
     haslach_q_time: Optional[str] = None
     haslach_w_cm: Optional[float] = None
     haslach_w_time: Optional[str] = None
+
+    # NEUE Felder ab v1.9 — drei weitere Wertach-Pegel (Q+W)
+    wertach_q_m3s: Optional[float] = None
+    wertach_q_time: Optional[str] = None
+    wertach_w_cm: Optional[float] = None
+    wertach_w_time: Optional[str] = None
+    sebastianskapelle_q_m3s: Optional[float] = None
+    sebastianskapelle_q_time: Optional[str] = None
+    sebastianskapelle_w_cm: Optional[float] = None
+    sebastianskapelle_w_time: Optional[str] = None
+    thalhofen_q_m3s: Optional[float] = None
+    thalhofen_q_time: Optional[str] = None
+    thalhofen_w_cm: Optional[float] = None
+    thalhofen_w_time: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
@@ -667,6 +709,20 @@ def collect() -> Sample:
         sample.haslach_q_time, sample.haslach_q_m3s = r
     if r := fetch_hnd(HND_HASLACH_W_URL, "Haslach W"):
         sample.haslach_w_time, sample.haslach_w_cm = r
+
+    # NEU v1.9: drei weitere Wertach-Pegel (Fließwellen-Kette vervollständigen)
+    if r := fetch_hnd(HND_WERTACH_Q_URL, "Wertach Q"):
+        sample.wertach_q_time, sample.wertach_q_m3s = r
+    if r := fetch_hnd(HND_WERTACH_W_URL, "Wertach W"):
+        sample.wertach_w_time, sample.wertach_w_cm = r
+    if r := fetch_hnd(HND_SEBASTIANSKAPELLE_Q_URL, "Sebastianskapelle Q"):
+        sample.sebastianskapelle_q_time, sample.sebastianskapelle_q_m3s = r
+    if r := fetch_hnd(HND_SEBASTIANSKAPELLE_W_URL, "Sebastianskapelle W"):
+        sample.sebastianskapelle_w_time, sample.sebastianskapelle_w_cm = r
+    if r := fetch_hnd(HND_THALHOFEN_Q_URL, "Thalhofen Q"):
+        sample.thalhofen_q_time, sample.thalhofen_q_m3s = r
+    if r := fetch_hnd(HND_THALHOFEN_W_URL, "Thalhofen W"):
+        sample.thalhofen_w_time, sample.thalhofen_w_cm = r
 
     # NEU v1.3: Singold (Pegel Langerringen) — wichtiger Direkt-Zubringer
     # zum Senkelbach via "Singold-Senkelbach"-Überleitung

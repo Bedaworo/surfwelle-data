@@ -236,9 +236,11 @@ async function build(){
 
 const PAST_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[168,"7 T"],[336,"14 T"]];
 const FORE_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[72,"3 T"]];
-let S={roSeries:[],measFine:[],foreFine:[],now:0,trueNow:0,past:12,fore:12};
+let S={roSeries:[],measFine:[],foreFine:[],now:0,trueNow:0,past:168,fore:24};
 try{
-  const sp=localStorage.getItem('fabrikkanal_past_h'), sf=localStorage.getItem('fabrikkanal_fore_h');
+  // Schlüssel-Suffix v2: sonst würden bereits gespeicherte Auswahlen aus früheren
+  // Besuchen die neuen Standardwerte (7 T / 24 h) sofort wieder überschreiben.
+  const sp=localStorage.getItem('fabrikkanal_past_h_v2'), sf=localStorage.getItem('fabrikkanal_fore_h_v2');
   if(sp)S.past=+sp; if(sf)S.fore=+sf;
 }catch(e){}
 
@@ -309,10 +311,10 @@ function render(roSeries,measFine,foreFine,now,trueNow,curTue,lastMeasT,lastMeas
 
   document.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{S.past=+b.dataset.p;
     document.querySelectorAll("[data-p]").forEach(x=>x.classList.toggle('on',x===b));
-    try{localStorage.setItem('fabrikkanal_past_h',S.past);}catch(e){} draw();});
+    try{localStorage.setItem('fabrikkanal_past_h_v2',S.past);}catch(e){} draw();});
   document.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{S.fore=+b.dataset.f;
     document.querySelectorAll("[data-f]").forEach(x=>x.classList.toggle('on',x===b));
-    try{localStorage.setItem('fabrikkanal_fore_h',S.fore);}catch(e){} draw();});
+    try{localStorage.setItem('fabrikkanal_fore_h_v2',S.fore);}catch(e){} draw();});
   document.getElementById("updated").textContent="Stand: "+new Date().toLocaleString('de-DE');
   wireHover(); draw();
 }

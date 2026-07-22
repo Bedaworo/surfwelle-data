@@ -10,38 +10,33 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 :root{
-  --ink:#0E2027; --deep:#14303A; --panel:#193C48; --line:#27596A;
-  --foam:#E6F0EF; --mute:#8AA8B1; --water:#56B0C4; --amber:#F0B429; --dry:#4A6C77;
-  --r:3px;
+  --ink:#0E2027; --deep:#14303A; --line:#27596A;
+  --foam:#E6F0EF; --mute:#8AA8B1; --water:#56B0C4; --amber:#F0B429;
+  --far:#9E7BB5; --dry:#4A6C77; --r:3px;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
-body{
-  background:var(--ink); color:var(--foam);
+body{background:var(--ink); color:var(--foam);
   font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:15px; line-height:1.5;
-  padding:20px 16px 48px; max-width:1040px; margin:0 auto;
-}
-h1{
-  font-family:"Bricolage Grotesque",sans-serif; font-weight:700;
-  font-size:clamp(22px,4.4vw,34px); letter-spacing:-.02em; margin:0;
-}
+  padding:20px 16px 48px; max-width:1040px; margin:0 auto}
+h1{font-family:"Bricolage Grotesque",sans-serif; font-weight:700;
+  font-size:clamp(22px,4.4vw,34px); letter-spacing:-.02em; margin:0}
 .sub{color:var(--mute); font-size:13px; margin-top:2px}
 header{display:flex; justify-content:space-between; align-items:flex-end; gap:16px;
   border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:22px; flex-wrap:wrap}
 .stamp{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--mute); text-align:right}
+.stamp b{color:var(--foam); font-weight:500}
+.stale{color:var(--amber)}
 
-/* ---- Layout: Pegellatte + Status ---- */
-.top{display:grid; grid-template-columns:118px 1fr; gap:22px; align-items:stretch; margin-bottom:26px}
+.top{display:grid; grid-template-columns:118px 1fr; gap:22px; margin-bottom:26px}
 @media(max-width:620px){.top{grid-template-columns:92px 1fr; gap:14px}}
 
-/* Signature: Pegellatte im Stil einer Emaille-Messlatte */
-.staff{position:relative; background:var(--deep); border:1px solid var(--line); border-radius:var(--r);
-  overflow:hidden; min-height:290px}
+.staff{position:relative; background:var(--deep); border:1px solid var(--line);
+  border-radius:var(--r); overflow:hidden; min-height:300px}
 .staff .fill{position:absolute; left:0; right:0; bottom:0;
-  background:linear-gradient(180deg,var(--water) 0%, #2E7F92 100%);
+  background:linear-gradient(180deg,var(--water) 0%,#2E7F92 100%);
   transition:height .7s cubic-bezier(.25,.8,.3,1)}
-.staff.on .fill{background:linear-gradient(180deg,var(--amber) 0%, #C98D12 100%)}
-.staff .ticks{position:absolute; inset:0}
+.staff.on .fill{background:linear-gradient(180deg,var(--amber) 0%,#C98D12 100%)}
 .staff .tick{position:absolute; left:0; right:0; border-top:1px solid rgba(230,240,239,.20)}
 .staff .tick span{position:absolute; left:5px; top:2px; font-family:"IBM Plex Mono",monospace;
   font-size:9px; color:rgba(230,240,239,.55)}
@@ -57,43 +52,54 @@ header{display:flex; justify-content:space-between; align-items:flex-end; gap:16
 .status{display:flex; flex-direction:column; gap:12px}
 .verdict{font-family:"Bricolage Grotesque",sans-serif; font-weight:700;
   font-size:clamp(20px,3.6vw,28px); letter-spacing:-.01em; line-height:1.15}
-.verdict.on{color:var(--amber)}
-.verdict.off{color:var(--dry)}
-.note{color:var(--mute); font-size:14px; max-width:56ch}
-.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:1px;
-  background:var(--line); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; margin-top:auto}
+.verdict.on{color:var(--amber)} .verdict.off{color:var(--dry)}
+.note{color:var(--mute); font-size:14px; max-width:58ch}
+.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr)); gap:1px;
+  background:var(--line); border:1px solid var(--line); border-radius:var(--r);
+  overflow:hidden; margin-top:auto}
 .cell{background:var(--deep); padding:9px 11px}
 .cell .k{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--mute)}
 .cell .v{font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:17px; margin-top:2px}
 .cell .v small{font-size:11px; font-weight:400; color:var(--mute); margin-left:2px}
-.warn{border:1px solid var(--amber); border-radius:var(--r); padding:9px 12px;
-  font-size:13px; color:var(--amber); background:rgba(240,180,41,.07)}
+.banner{border-radius:var(--r); padding:9px 12px; font-size:13px}
+.banner.warn{border:1px solid var(--amber); color:var(--amber); background:rgba(240,180,41,.07)}
+.banner.far{border:1px solid var(--far); color:#C4A8D6; background:rgba(158,123,181,.09)}
+.banner+.banner{margin-top:8px}
 
-/* ---- Chart ---- */
-.tools{display:flex; gap:6px; align-items:center; margin:0 0 10px; flex-wrap:wrap}
+.tools{display:flex; gap:12px; align-items:center; margin:0 0 8px; flex-wrap:wrap}
+.tools .lbl{font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--mute); min-width:66px}
+.tools+.tools{margin-bottom:12px}
+.seg{display:flex; gap:4px}
 button{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--mute);
   background:var(--deep); border:1px solid var(--line); border-radius:var(--r);
   padding:5px 11px; cursor:pointer}
 button:hover{color:var(--foam)}
-button[aria-pressed="true"]{background:var(--water); border-color:var(--water); color:var(--ink); font-weight:600}
-button:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
-.chartbox{position:relative; height:370px; background:var(--deep);
+#segBack button[aria-pressed="true"]{background:var(--water); border-color:var(--water);
+  color:var(--ink); font-weight:600}
+#segFwd button[aria-pressed="true"]{background:var(--amber); border-color:var(--amber);
+  color:var(--ink); font-weight:600}
+button:focus-visible{outline:2px solid var(--foam); outline-offset:2px}
+.chartbox{position:relative; height:380px; background:var(--deep);
   border:1px solid var(--line); border-radius:var(--r); padding:10px}
-@media(max-width:620px){.chartbox{height:300px}}
-.key{display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--mute); margin:10px 0 26px}
-.key i{display:inline-block; width:16px; height:0; border-top-width:3px; border-top-style:solid;
-  vertical-align:middle; margin-right:5px}
+@media(max-width:620px){.chartbox{height:310px}}
+.key{display:flex; gap:15px; flex-wrap:wrap; font-size:12px; color:var(--mute); margin:10px 0 8px}
+.key i{display:inline-block; width:16px; height:0; border-top-width:3px;
+  border-top-style:solid; vertical-align:middle; margin-right:5px}
+.skill{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--mute);
+  border-top:1px solid rgba(39,89,106,.5); padding-top:9px; margin-bottom:26px}
+.skill b{color:var(--foam); font-weight:600}
 
-/* ---- Erklärung ---- */
 h2{font-family:"Bricolage Grotesque",sans-serif; font-weight:500; font-size:15px;
-  letter-spacing:.02em; margin:0 0 10px; color:var(--foam)}
+  margin:0 0 10px; color:var(--foam)}
 .explain{border-top:1px solid var(--line); padding-top:18px}
-table{border-collapse:collapse; width:100%; max-width:520px; font-size:13px}
+table{border-collapse:collapse; width:100%; max-width:540px; font-size:13px}
 th,td{text-align:left; padding:5px 12px 5px 0; border-bottom:1px solid rgba(39,89,106,.5)}
 th{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--mute); font-weight:500}
 td.n{font-family:"IBM Plex Mono",monospace}
 .hi td{color:var(--amber)}
-p.fine{color:var(--mute); font-size:12.5px; max-width:70ch}
+p.fine{color:var(--mute); font-size:12.5px; max-width:72ch}
+p.fine b{color:var(--foam); font-weight:500}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -111,7 +117,7 @@ p.fine{color:var(--mute); font-size:12.5px; max-width:70ch}
   <div class="staff" id="staff">
     <div class="cap">PEGEL</div>
     <div class="fill" id="fill" style="height:0%"></div>
-    <div class="ticks" id="ticks"></div>
+    <div id="ticks"></div>
     <div class="thr" id="thr"><span>60 SURFBAR</span></div>
     <div class="now" id="nowlbl" style="bottom:0">–</div>
   </div>
@@ -119,453 +125,659 @@ p.fine{color:var(--mute); font-size:12.5px; max-width:70ch}
   <div class="status">
     <div class="verdict off" id="verdict">Daten werden geladen …</div>
     <div class="note" id="note"></div>
-    <div id="warnbox"></div>
+    <div id="banners"></div>
     <div class="grid">
       <div class="cell"><div class="k">Türkheim</div><div class="v" id="c-tue">–<small>m³/s</small></div></div>
       <div class="cell"><div class="k">Kanal geschätzt</div><div class="v" id="c-fab">–<small>m³/s</small></div></div>
       <div class="cell"><div class="k">Laufzeit Tü→Welle</div><div class="v" id="c-lag">–<small>h</small></div></div>
       <div class="cell"><div class="k">Max erwartet</div><div class="v" id="c-peak">–<small>cm</small></div></div>
-      <div class="cell"><div class="k">Biessenhofen</div><div class="v" id="c-bies">–<small>m³/s</small></div></div>
+      <div class="cell"><div class="k">Prognose reicht</div><div class="v" id="c-reach">–<small>h</small></div></div>
+      <div class="cell"><div class="k">Grüntensee</div><div class="v" id="c-see">–<small>%</small></div></div>
     </div>
   </div>
 </div>
 
 <div class="tools">
-  <span style="font-size:12px;color:var(--mute);margin-right:4px">Rückblick</span>
-  <button data-h="12">12 h</button>
-  <button data-h="24" aria-pressed="true">24 h</button>
-  <button data-h="48">48 h</button>
-  <button data-h="72">72 h</button>
+  <span class="lbl">Rückblick</span>
+  <span class="seg" id="segBack">
+    <button data-h="12">12 h</button>
+    <button data-h="24" aria-pressed="true">24 h</button>
+    <button data-h="48">48 h</button>
+    <button data-h="72">72 h</button>
+  </span>
 </div>
+<div class="tools">
+  <span class="lbl">Ausblick</span>
+  <span class="seg" id="segFwd">
+    <button data-f="6">6 h</button>
+    <button data-f="12" aria-pressed="true">12 h</button>
+    <button data-f="18">18 h</button>
+    <button data-f="24">24 h</button>
+  </span>
+</div>
+
 <div class="chartbox"><canvas id="chart"></canvas></div>
 <div class="key">
   <span><i style="border-color:#E6F0EF"></i>Welle gemessen</span>
-  <span><i style="border-color:#F0B429;border-top-style:dashed"></i>Welle prognostiziert</span>
+  <span><i style="border-color:#F0B429;border-top-style:dashed"></i>Schätzung aus Türkheim</span>
+  <span><i style="border-color:#9E7BB5;border-top-style:dashed"></i>aus Sebastianskapelle</span>
+  <span><i style="border-color:rgba(230,240,239,.32);border-top-style:dashed"></i>Schätzung rückblickend</span>
   <span><i style="border-color:#56B0C4"></i>Kanal geschätzt</span>
   <span><i style="border-color:#4A6C77"></i>Türkheim</span>
 </div>
+<div class="skill" id="skill"></div>
 
 <div class="explain">
   <h2>Wie die Prognose entsteht</h2>
   <p class="fine">
-    Der Fabrikkanal führt das Wasser, das die Welle speist — er erklärt die gemessene Wellenhöhe
-    mit r&nbsp;=&nbsp;0,93. Seine Werte liegen aber nicht live vor, deshalb wird er hier aus dem
-    Pegel Türkheim geschätzt. Die Kennlinie stammt aus 322 Tagen echter Kanaldaten
-    (Jan 2025 – Jul 2026). Die Laufzeit Türkheim → Welle ist abflussabhängig: bei wenig Wasser
-    fließt es langsamer.
+    Der Fabrikkanal führt das Wasser, das die Welle speist — er erklärt die gemessene
+    Wellenhöhe mit r&nbsp;=&nbsp;0,93. Seine Werte liegen nicht live vor, deshalb wird er
+    aus dem Pegel Türkheim geschätzt. Die Kennlinie stammt aus 322 Tagen echter Kanaldaten.
+    Die Laufzeit ist abflussabhängig, und zwar in jedem Flussabschnitt nach demselben
+    Gesetz: T&nbsp;=&nbsp;T₁₀&nbsp;·&nbsp;(Q/10)^−b. Für Türkheim&nbsp;→&nbsp;Welle ergibt die
+    Messung über den Jahresdatensatz T₁₀&nbsp;=&nbsp;5,7&nbsp;h und b&nbsp;=&nbsp;0,40
+    (R²&nbsp;=&nbsp;0,98) — also gut 9 Stunden bei Niedrigwasser und knapp 6 bei viel Wasser.
   </p>
   <table>
     <thead><tr><th>Kanal</th><th>Welle</th><th>surfbar</th></tr></thead>
     <tbody>
-      <tr><td class="n">&lt; 8 m³/s</td><td class="n">bis 40 cm</td><td class="n">0 %</td></tr>
-      <tr><td class="n">9 m³/s</td><td class="n">≈ 50 cm</td><td class="n">11 %</td></tr>
-      <tr><td class="n">10,5 m³/s</td><td class="n">≈ 57 cm</td><td class="n">26 %</td></tr>
-      <tr class="hi"><td class="n">11,5 m³/s</td><td class="n">≈ 62 cm</td><td class="n">61 %</td></tr>
+      <tr><td class="n">&lt; 8 m³/s</td><td class="n">bis 42 cm</td><td class="n">0 %</td></tr>
+      <tr><td class="n">9,2 m³/s</td><td class="n">≈ 50 cm</td><td class="n">11 %</td></tr>
+      <tr><td class="n">10,6 m³/s</td><td class="n">≈ 57 cm</td><td class="n">26 %</td></tr>
+      <tr class="hi"><td class="n">11,4 m³/s</td><td class="n">≈ 62 cm</td><td class="n">61 %</td></tr>
       <tr class="hi"><td class="n">13,5 m³/s</td><td class="n">≈ 68 cm</td><td class="n">100 %</td></tr>
       <tr class="hi"><td class="n">≥ 15 m³/s</td><td class="n">≈ 76 cm</td><td class="n">98 %</td></tr>
     </tbody>
   </table>
   <p class="fine" style="margin-top:14px">
-    Der Kanal sättigt bei 23 m³/s — mehr Wasser in der Wertach bringt darüber keine höhere Welle mehr.
-    Sebastianskapelle im Quellgebiet läuft Türkheim rund 10 Stunden voraus und dient als Vorwarnung.
+    <b>Der Ausblick-Umschalter</b> wählt das Zeitfenster, nicht die Datenquelle — die zieht
+    das Diagramm selbst. Türkheim trägt je nach Abfluss 6 bis 9 Stunden; wo das endet,
+    übernimmt Sebastianskapelle.
+  </p>
+  <p class="fine" style="margin-top:10px">
+    <b>Warum Sebastianskapelle und nicht Haslach:</b> Sebastianskapelle liegt <em>oberhalb</em>
+    des Grüntensees — der Pegel läuft dem Seespiegel rund 6 Stunden voraus und zeigt das
+    Wasser, bevor der Speicher darüber entscheidet. Haslach liegt <em>unterhalb</em> und folgt
+    dem See um 3 Stunden; sein Signal hat die Pufferung schon hinter sich. Zu Türkheim ergibt
+    das rund 12 Stunden Vorlauf bei Sebastianskapelle gegen 4 bei Haslach.
+  </p>
+  <p class="fine" style="margin-top:10px">
+    Die violette Kurve sagt allerdings <b>keinen absoluten Wert</b> voraus, sondern nur, wie
+    sich Türkheim relativ verändert; verankert wird sie am aktuellen Türkheim-Stand. Der Grund:
+    die Kennlinie ist über ein ganzes Jahr gefittet, und ihre Korrelation von 0,85 stammt zu
+    einem guten Teil daher, dass beide Pegel im Winter hoch und im Sommer niedrig stehen.
+    Innerhalb einer Trockenphase liegt sie als absoluter Wert um mehr als Faktor zwei daneben.
+    Ohne diese Verankerung springt die Kurve am Farbwechsel.
+  </p>
+  <p class="fine" style="margin-top:10px">
+    <b>Der Füllstand des Grüntensees</b> bezieht sich auf die Bewirtschaftungslamelle
+    875,50 bis 876,50 m ü. NN, innerhalb derer der Betreiber frei steuert. Er sagt nichts über
+    die Zukunft voraus (r&nbsp;=&nbsp;0,18 auf den Türkheim-Anstieg), verrät aber, wie viel
+    Puffer noch da ist: bei vollem See schlägt ein Quellgebiets-Schub deutlich verlässlicher
+    durch (r&nbsp;=&nbsp;0,48 gegen 0,22 bei leerem See). Darüber liegt noch der
+    Hochwasserschutzraum mit weiteren 6 Metern — der taucht hier nicht auf.
+  </p>
+  <p class="fine" style="margin-top:10px">
+    <b>Wo die Pegel nicht mehr hinreichen</b>, steht nur noch die Regenprognose fürs
+    Quellgebiet. Sie erklärt rund 20 % der Streuung des Türkheim-Anstiegs — genug für eine
+    Spanne, zu wenig für eine Linie und viel zu wenig für einen Zeitpunkt. Deshalb liegt sie
+    als waagrechtes Band im abgedunkelten Bereich: die Wellenhöhe, die bei diesem Regen
+    plausibel ist, ohne Aussage wann. Die obere Kante ist das 80.&nbsp;Perzentil — sie wurde
+    über 1482 Stunden in 80 % der Fälle eingehalten.
+  </p>
+  <p class="fine" style="margin-top:10px">
+    <b>Die blasse Linie im Rückblick</b> ist dieselbe Schätzung, rückwirkend gerechnet.
+    Daran lässt sich ablesen, wie gut das Modell zuletzt lag; die Kennzahl unter dem
+    Diagramm ist die mittlere Abweichung im sichtbaren Fenster.
+  </p>
+  <p class="fine" style="margin-top:10px">
+    Der Bezugspunkt („letzter Messwert") kommt aus den Daten, nicht von der Uhr des Geräts.
+    Weichen beide um mehr als 20 Minuten ab, steht das oben rechts.
+  </p>
+  <p class="fine" style="margin-top:10px">
+    Der Kanal sättigt bei 23 m³/s — mehr Wasser in der Wertach bringt darüber keine höhere
+    Welle mehr.
   </p>
 </div>
 
 <script>
 const REPO = 'https://raw.githubusercontent.com/Bedaworo/surfwelle-data/main/data/';
 
-/* ---------- Kalibrierung (aus 322 Tagen Fabrikkanal-Messdaten) ---------- */
-// Türkheim (m³/s) -> Kanal [Median, P20, P80]
+/* ---------- Kalibrierung ---------- */
+// Türkheim -> Kanal [Median, P20, P80], aus 322 Tagen Fabrikkanal-Messdaten
 const TUE2FAB = [
-  [3.05, 4.06, 3.54, 5.04], [4.58, 5.96, 4.76, 7.09], [5.52, 7.42, 6.10, 8.43],
-  [6.43, 9.00, 7.88,10.57], [7.39,10.66, 9.32,11.95], [8.45,12.31,10.80,13.79],
-  [9.47,13.31,11.68,15.44], [10.80,15.08,13.73,17.30],[13.10,18.11,15.43,20.24],
+  [3.05, 4.06, 3.54, 5.04],[4.58, 5.96, 4.76, 7.09],[5.52, 7.42, 6.10, 8.43],
+  [6.43, 9.00, 7.88,10.57],[7.39,10.66, 9.32,11.95],[8.45,12.31,10.80,13.79],
+  [9.47,13.31,11.68,15.44],[10.80,15.08,13.73,17.30],[13.10,18.11,15.43,20.24],
   [17.40,22.29,19.62,22.98],[27.60,23.01,22.96,23.50]
 ];
-// Kanal (m³/s) -> [Wellenhöhe cm, P(>60cm)]
+// Kanal -> [Wellenhöhe cm, P(>60cm)]
 const FAB2WAVE = [
   [3.91,19.3,0.00],[5.62,28.2,0.00],[6.99,34.9,0.00],[8.25,42.4,0.01],
   [9.16,49.5,0.11],[10.56,57.2,0.26],[11.41,61.6,0.61],[12.38,63.5,0.89],
   [13.51,67.5,1.00],[14.82,75.6,0.98],[16.85,81.6,1.00]
 ];
-// Laufzeit Türkheim -> Kanal (h), abflussabhängig
-const LAGCURVE = [[3.5,12.25],[5.25,7.5],[7.0,6.0],[10.0,4.75]];
-const FAB2WAVE_LAG = 0.75;   // Kanal -> Welle
-const SEBA_WARN = 4.0;       // Vorwarnschwelle Sebastianskapelle
-// Die Kennlinien bilden Mediane ab; gegen 73 Tage Wellenmessung überschätzen
-// sie im Mittel um 2,8 cm. Diese Korrektur hebt die Präzision von 58 auf 64 %.
-const BIAS_CM = -2.8;
+// Sebastianskapelle -> Türkheim 10 h später [Median, P20, P80], r = 0.846
+const SEBA2TUE = [
+  [0.49, 5.43, 3.70, 6.38],[0.95, 7.41, 6.38, 9.19],[1.44, 9.29, 7.23,11.90],
+  [2.15,11.20, 9.06,16.80],[3.06,14.60,10.70,21.90],[4.91,20.50,12.00,28.70],
+  [8.99,30.50,21.74,50.40],[15.00,48.80,35.10,88.00]
+];
+// 24h-Regenprognose Oberjoch -> Türkheim-Anstieg binnen 36 h [Median, P80].
+// Aus 1482 Stunden Mai–Juli 2026. Die P80-Grenze wurde in 80 % der Stunden
+// eingehalten, der Median in 50 %. Bewusst nur als Spanne: die Prognose
+// erklaert rund 20 % der Streuung, das traegt keine Linie und erst recht
+// keinen Zeitpunkt. Zwei winzige Nicht-Monotonien geglaettet.
+const RAIN2RISE = [[0,0.66,1.39],[1.8,1.24,2.59],[4.1,1.57,2.96],
+                   [9.0,1.60,4.31],[16.7,2.55,4.85],[31.4,2.55,5.05]];
+const RAIN_MIN = 3;   // mm, ab hier lohnt die Aussage
 
-function interp(table, x, col){
-  if (x <= table[0][0]) return table[0][col];
-  const last = table[table.length-1];
-  if (x >= last[0]) return last[col];
-  for (let i=0;i<table.length-1;i++){
-    const a=table[i], b=table[i+1];
-    if (x>=a[0] && x<=b[0]){
-      const f=(x-a[0])/(b[0]-a[0]);
-      return a[col] + f*(b[col]-a[col]);
-    }
+// Laufzeiten folgen dem Potenzgesetz T = T10 · (Q/10)^-b. Über den ganzen
+// Jahresdatensatz gemessen, für jeden Flussabschnitt einzeln:
+//   Thalhofen→Biessenhofen   b=0,384  T10=1,97 h   R²=0,99
+//   Biessenhofen→Türkheim    b=0,311  T10=4,84 h   R²=0,91
+//   Sebastianskap.→Thalhofen b=0,271  T10=5,55 h   R²=0,98
+//   Türkheim→Fabrikkanal     b=0,300  T10=4,98 h   R²=0,92
+//   Türkheim→Welle gesamt    b=0,401  T10=5,71 h   R²=0,98
+// Die Exponenten liegen alle zwischen 0,27 und 0,40 - der Bereich, den die
+// kinematische Wellentheorie für natürliche Gerinne erwartet. Bei viel Wasser
+// fließt es schneller, und zwar in jedem Abschnitt nach demselben Gesetz.
+const TUE2WAVE = {t10:5.71, b:0.401};
+// Sebastianskapelle → Türkheim als Summe der drei Teilstrecken. Die direkte
+// Messung ist unbrauchbar (r < 0,4 außer im Hochwasser), weil der Grüntensee
+// dazwischenliegt; die Teilstrecken sind einzeln sauber messbar.
+const SEBA2TUE_T = {t10:12.36, b:0.32};
+const travel=(p,Q)=>p.t10*Math.pow(Math.min(Math.max(Q,2),40)/10, -p.b);
+
+const SEBA_WARN = 4.0;       // m³/s
+const BIAS_CM = -2.9;        // Kennlinien sind Mediane; gegen 73 Tage Messung +2,9 cm
+// Bewirtschaftungslamelle des Grüntensees laut Wasserwirtschaftsamt Kempten:
+// das AÜW steuert nach eigenem Ermessen zwischen diesen beiden Höhen.
+const SEE_MIN = 875.50, SEE_MAX = 876.50;
+const seePct = m => (m-SEE_MIN)/(SEE_MAX-SEE_MIN)*100;
+
+function interp(t,x,c){
+  if (x<=t[0][0]) return t[0][c];
+  const l=t[t.length-1]; if (x>=l[0]) return l[c];
+  for (let i=0;i<t.length-1;i++){
+    const a=t[i],b=t[i+1];
+    if (x>=a[0]&&x<=b[0]) return a[c]+(x-a[0])/(b[0]-a[0])*(b[c]-a[c]);
   }
-  return last[col];
+  return l[c];
 }
-const fabFromTue  = q => interp(TUE2FAB,q,1);
-const fabLo       = q => interp(TUE2FAB,q,2);
-const fabHi       = q => interp(TUE2FAB,q,3);
-const waveFromFab = q => interp(FAB2WAVE,q,1);
-const probFromFab = q => interp(FAB2WAVE,q,2);
-const lagHours    = q => interp(LAGCURVE,q,1);
+const fabFromTue=q=>interp(TUE2FAB,q,1), fabLo=q=>interp(TUE2FAB,q,2), fabHi=q=>interp(TUE2FAB,q,3);
+const waveFromFab=q=>interp(FAB2WAVE,q,1), probFromFab=q=>interp(FAB2WAVE,q,2);
+const tueFromSeba=q=>interp(SEBA2TUE,q,1), tueSebaLo=q=>interp(SEBA2TUE,q,2), tueSebaHi=q=>interp(SEBA2TUE,q,3);
+const lagHours=q=>travel(TUE2WAVE,q);   // Türkheim -> Welle, gesamt
+const waveOf=q=>Math.max(0, waveFromFab(q)+BIAS_CM);
 
 /* ---------- Zeit ---------- */
+const HOUR=3600e3;
 function berlinOffsetMs(t){
-  const d = new Date(t);
-  const u = new Date(d.toLocaleString('en-US',{timeZone:'UTC'}));
-  const b = new Date(d.toLocaleString('en-US',{timeZone:'Europe/Berlin'}));
-  return b - u;
+  const d=new Date(t);
+  return new Date(d.toLocaleString('en-US',{timeZone:'Europe/Berlin'}))
+       - new Date(d.toLocaleString('en-US',{timeZone:'UTC'}));
 }
 function parseTime(s){
-  s = s.trim();
+  s=s.trim();
   if (/([+-]\d{2}:?\d{2}|Z)$/.test(s)) return Date.parse(s);
-  const prov = Date.parse(s + 'Z');          // naiv = lokale Berliner Zeit
-  return prov - berlinOffsetMs(prov);
+  const p=Date.parse(s+'Z');
+  return p-berlinOffsetMs(p);
 }
+const fmtTime=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit'});
+const fmtDay =new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',weekday:'short',day:'2-digit',month:'2-digit'});
+const berlinHour=t=>+new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',hour12:false}).format(t);
+const stamp=t=>fmtDay.format(t)+' '+fmtTime.format(t);
 
 /* ---------- Laden ---------- */
-// Bewusst kleine Auszugsdateien statt Range-Requests auf collected.csv:
-// raw.githubusercontent.com beantwortet CORS-Preflights mit 403, und die
-// Dateigroesse laesst sich nicht ermitteln, weil Content-Length die
-// gzip-komprimierte Groesse meldet, Ranges aber auf der unkomprimierten
-// Datei gelten. recent.csv wird vom Workflow bei jedem Lauf mitgeschrieben
-// und ist rund 200 kB statt 17 MB.
+// Kleine Auszugsdateien statt Range-Requests: raw.githubusercontent.com lehnt
+// CORS-Preflights ab, und Content-Length meldet die gzip-Groesse, waehrend
+// Ranges auf der unkomprimierten Datei gelten. recent.csv schreibt der Workflow.
 async function getFile(file){
-  const r = await fetch(REPO+file, {cache:'no-store'});
+  const r=await fetch(REPO+file,{cache:'no-store'});
   if (!r.ok) throw new Error(file+': HTTP '+r.status);
   return r.text();
 }
 
 async function loadCollected(){
-  const text = await getFile('recent.csv');
-  const lines = text.split('\n');
-  const cols = lines[0].trim().split(',');
-  const ix = n => cols.indexOf(n);
-  const iT=ix('collected_at'), iTu=ix('tuerkheim_q_m3s'),
-        iSe=ix('sebastianskapelle_q_m3s'), iBi=ix('biessenhofen_q_m3s');
-  if (iT < 0) throw new Error('recent.csv: Spalte collected_at fehlt');
-  const out = [];
+  const lines=(await getFile('recent.csv')).split('\n');
+  const cols=lines[0].trim().split(',');
+  const ix=n=>cols.indexOf(n);
+  const iT=ix('collected_at'), iTu=ix('tuerkheim_q_m3s'), iSe=ix('sebastianskapelle_q_m3s'),
+        iBi=ix('biessenhofen_q_m3s'), iR=ix('forecast_rain_oberjoch_24h_mm'),
+        iG=ix('gruentensee_w_mnn');
+  if (iT<0) throw new Error('recent.csv: Spalte collected_at fehlt');
+  const out=[];
   for (const line of lines.slice(1)){
     if (!line.trim()) continue;
-    const f = line.split(',');
-    if (f.length < cols.length - 2) continue;
-    const t = parseTime(f[iT]);
+    const f=line.split(',');
+    if (f.length<cols.length-2) continue;
+    const t=parseTime(f[iT]);
     if (!isFinite(t)) continue;
-    const num = i => (i>=0 && f[i] !== undefined && f[i] !== '' ? parseFloat(f[i]) : NaN);
-    out.push({t, tue:num(iTu), seba:num(iSe), bies:num(iBi)});
+    const num=i=>(i>=0&&f[i]!==undefined&&f[i]!==''?parseFloat(f[i]):NaN);
+    out.push({t,tue:num(iTu),seba:num(iSe),bies:num(iBi),rain24:num(iR),see:num(iG)});
   }
   return out.sort((a,b)=>a.t-b.t);
 }
 
 async function loadWave(){
-  const text = await getFile('recent_swell.csv');
-  const raw = [];
+  const text=await getFile('recent_swell.csv');
+  const raw=[];
   for (const line of text.split('\n').slice(1)){
-    const f = line.trim().split(',');
-    if (f.length < 2) continue;
-    const t = parseTime(f[0]), v = parseFloat(f[1]);
-    if (isFinite(t) && isFinite(v)) raw.push({t, v});
+    const f=line.trim().split(',');
+    if (f.length<2) continue;
+    const t=parseTime(f[0]), v=parseFloat(f[1]);
+    if (isFinite(t)&&isFinite(v)) raw.push({t,v});
   }
   raw.sort((a,b)=>a.t-b.t);
-  // Isolierte Sensor-Ausreißer verwerfen: ein Punkt weicht stark von beiden
-  // Nachbarn ab, die untereinander ähnlich sind (z.B. 23,6 -> 62,8 -> 19,9
-  // am 14.07.2026). Ohne das würde ein einzelner Fehlwert als laufende Welle
-  // gemeldet. Echte, unruhige Wellen bewegen sich langsamer und bleiben drin.
-  const out = [];
+  // Sensor-Artefakte: Sprung ueber 30 cm und binnen einer Stunde zurueck auf
+  // dasselbe Niveau. Echte Wellen bewegen sich langsamer - ueber den gesamten
+  // Datenbestand liegt das 99,9-Perzentil der Schrittaenderung bei 21 cm.
+  const out=[];
   for (let i=0;i<raw.length;i++){
-    if (i>0 && i<raw.length-1){
-      const p = raw[i-1].v, n = raw[i+1].v;
-      const dt = (raw[i+1].t - raw[i-1].t) / 60000;      // Minuten
-      if (dt <= 25 && Math.abs(raw[i].v - (p+n)/2) > 16 && Math.abs(p-n) < 8) continue;
+    let bad=false;
+    for (let a=Math.max(0,i-12); a<i && !bad; a++){
+      if (Math.abs(raw[i].v-raw[a].v)<=30) break;
+      for (let b=i+1; b<Math.min(raw.length,i+13); b++){
+        if (raw[b].t-raw[a].t > 70*60e3) break;
+        if (Math.abs(raw[b].v-raw[a].v)<=12){ bad=true; break; }
+      }
     }
-    out.push(raw[i]);
+    if (!bad) out.push(raw[i]);
   }
   return out;
 }
 
 /* ---------- Prognose ---------- */
-function buildForecast(coll){
-  // Jeder Türkheim-Messwert erzeugt einen Wellenwert zum Ankunftszeitpunkt
-  const pts = [];
+function buildForecast(coll, ref){
+  const near=[], far=[];
   for (const r of coll){
-    if (!isFinite(r.tue)) continue;
-    const lag = (lagHours(r.tue) + FAB2WAVE_LAG) * 3600e3;
-    pts.push({
-      t: r.t + lag,
-      mid: Math.max(0, waveFromFab(fabFromTue(r.tue)) + BIAS_CM),
-      lo:  Math.max(0, waveFromFab(fabLo(r.tue))      + BIAS_CM),
-      hi:  Math.max(0, waveFromFab(fabHi(r.tue))      + BIAS_CM),
-      p:   probFromFab(fabFromTue(r.tue))   // empirisch, braucht keine Korrektur
-    });
+    if (isFinite(r.tue)){
+      const lag=lagHours(r.tue)*HOUR;
+      near.push({t:r.t+lag,
+        mid:waveOf(fabFromTue(r.tue)), lo:waveOf(fabLo(r.tue)), hi:waveOf(fabHi(r.tue)),
+        p:probFromFab(fabFromTue(r.tue))});
+    }
+    if (isFinite(r.seba)){
+      const tu=tueFromSeba(r.seba);
+      far.push({t:r.t+(travel(SEBA2TUE_T,tu)+lagHours(tu))*HOUR,
+                raw:tu, lo:tueSebaLo(r.seba), hi:tueSebaHi(r.seba)});
+    }
   }
-  return pts.sort((a,b)=>a.t-b.t);
+  near.sort((a,b)=>a.t-b.t); far.sort((a,b)=>a.t-b.t);
+
+  // Die Kennlinie Sebastianskapelle -> Türkheim ist über das ganze Jahr
+  // gefittet. Ihre hohe Korrelation kommt zu einem guten Teil daher, dass
+  // beide Pegel im Winter hoch und im Sommer niedrig stehen - als absoluter
+  // Wert liegt sie innerhalb einer Trockenphase deutlich daneben. Deshalb
+  // wird sie nur für die relative Änderung benutzt und am aktuellen
+  // Türkheim-Stand verankert. Ohne das springt die Kurve an der Nahtstelle.
+  const lastT=[...coll].reverse().find(d=>isFinite(d.tue));
+  let anchor=null, scale=1;
+  if (lastT && far.length){
+    anchor=far.reduce((a,b)=>Math.abs(b.t-ref)<Math.abs(a.t-ref)?b:a);
+    if (anchor.raw>0.2) scale=lastT.tue/anchor.raw;
+  }
+  const out=far.map(d=>{
+    const tu=d.raw*scale;
+    return {t:d.t, mid:waveOf(fabFromTue(tu)),
+            lo :waveOf(fabFromTue(d.lo*scale)),
+            hi :waveOf(fabFromTue(d.hi*scale)),
+            p  :probFromFab(fabFromTue(tu))};
+  });
+  return {near, far:out, scale};
 }
 
 /* ---------- Pegellatte ---------- */
-const STAFF_MAX = 100;
+const STAFF_MAX=100;
 function drawStaff(cm){
-  const ticks = document.getElementById('ticks');
-  if (!ticks.dataset.done){
-    let h = '';
+  const box=document.getElementById('ticks');
+  if (!box.dataset.done){
+    let h='';
     for (let v=20; v<STAFF_MAX; v+=20)
-      h += `<div class="tick" style="bottom:${v/STAFF_MAX*100}%"><span>${v}</span></div>`;
-    ticks.innerHTML = h;
-    ticks.dataset.done = '1';
-    document.getElementById('thr').style.bottom = (60/STAFF_MAX*100)+'%';
+      h+=`<div class="tick" style="bottom:${v/STAFF_MAX*100}%"><span>${v}</span></div>`;
+    box.innerHTML=h; box.dataset.done='1';
+    document.getElementById('thr').style.bottom=(60/STAFF_MAX*100)+'%';
   }
-  const pct = Math.max(0, Math.min(100, cm/STAFF_MAX*100));
-  document.getElementById('fill').style.height = pct+'%';
-  const lbl = document.getElementById('nowlbl');
-  lbl.style.bottom = Math.max(pct, 7)+'%';
-  lbl.textContent = cm.toFixed(0)+' cm';
-  document.getElementById('staff').classList.toggle('on', cm >= 60);
+  const pct=Math.max(0,Math.min(100,cm/STAFF_MAX*100));
+  document.getElementById('fill').style.height=pct+'%';
+  const l=document.getElementById('nowlbl');
+  l.style.bottom=Math.max(pct,7)+'%';
+  l.textContent=cm.toFixed(0)+' cm';
+  document.getElementById('staff').classList.toggle('on',cm>=60);
 }
 
 /* ---------- Chart ---------- */
-let chart, DATA = null, HOURS = 24;
+let chart, DATA=null, HOURS=24, FWD=12;
 
 function render(){
   if (!DATA) return;
-  const {coll, wave, fc} = DATA;
-  const now = Date.now();
-  const from = now - HOURS*3600e3;
-  const maxLag = (lagHours(3) + FAB2WAVE_LAG) * 3600e3;
-  const to = now + maxLag;
+  const {coll,wave,fc,ref}=DATA;
+  const from=ref-HOURS*HOUR;
+  const to=ref+FWD*HOUR;
+  const vis=t=>t>=from&&t<=to;
 
-  const inW = t => t>=from && t<=to;
-  const wSeries  = wave.filter(d=>inW(d.t)).map(d=>({x:d.t, y:d.v}));
-  const fSeries  = fc.filter(d=>d.t>=now && d.t<=to).map(d=>({x:d.t, y:+d.mid.toFixed(1)}));
-  const fLo      = fc.filter(d=>d.t>=now && d.t<=to).map(d=>({x:d.t, y:+d.lo.toFixed(1)}));
-  const fHi      = fc.filter(d=>d.t>=now && d.t<=to).map(d=>({x:d.t, y:+d.hi.toFixed(1)}));
-  const tSeries  = coll.filter(d=>inW(d.t)&&isFinite(d.tue)).map(d=>({x:d.t, y:d.tue}));
-  const kSeries  = coll.filter(d=>inW(d.t)&&isFinite(d.tue))
-                       .map(d=>({x:d.t, y:+fabFromTue(d.tue).toFixed(2)}));
+  const wSeries=wave.filter(d=>vis(d.t)).map(d=>({x:d.t,y:d.v}));
+  const tSeries=coll.filter(d=>vis(d.t)&&isFinite(d.tue)).map(d=>({x:d.t,y:d.tue}));
+  const kSeries=coll.filter(d=>vis(d.t)&&isFinite(d.tue))
+                    .map(d=>({x:d.t,y:+fabFromTue(d.tue).toFixed(2)}));
 
-  const ds = [
-    {label:'Band', data:fHi, borderWidth:0, pointRadius:0, yAxisID:'y',
-     backgroundColor:'rgba(240,180,41,.13)', fill:'+1', order:5},
-    {label:'Band ', data:fLo, borderWidth:0, pointRadius:0, yAxisID:'y', order:5},
-    {label:'Welle prognostiziert', data:fSeries, borderColor:'#F0B429', borderWidth:2,
-     borderDash:[5,4], pointRadius:0, tension:.3, yAxisID:'y', order:1},
-    {label:'Welle gemessen', data:wSeries, borderColor:'#E6F0EF', borderWidth:2,
-     pointRadius:0, tension:.25, yAxisID:'y', order:0},
-    {label:'Kanal geschätzt', data:kSeries, borderColor:'#56B0C4', borderWidth:1.6,
-     pointRadius:0, tension:.25, yAxisID:'y1', order:3},
-    {label:'Türkheim', data:tSeries, borderColor:'#4A6C77', borderWidth:1.2,
-     pointRadius:0, tension:.25, yAxisID:'y1', order:4}
+  const past=fc.near.filter(d=>vis(d.t)&&d.t< ref).map(d=>({x:d.t,y:+d.mid.toFixed(1)}));
+  const fut =fc.near.filter(d=>vis(d.t)&&d.t>=ref);
+  // Sebastianskapelle erst ab dort, wo Türkheim nicht mehr hinreicht - so hat
+  // jeder Abschnitt der Kurve genau eine Quelle und man sieht, wo sie wechselt.
+  const nearEnd=fut.length?fut[fut.length-1].t:ref;
+  const ff=fc.far.filter(d=>vis(d.t)&&d.t>nearEnd);
+  const farEnd=ff.length?ff[ff.length-1].t:nearEnd;
+
+  const ds=[
+    {label:'Band',data:fut.map(d=>({x:d.t,y:+d.hi.toFixed(1)})),borderWidth:0,pointRadius:0,
+     yAxisID:'y',backgroundColor:'rgba(240,180,41,.13)',fill:'+1',order:6},
+    {label:'Band ',data:fut.map(d=>({x:d.t,y:+d.lo.toFixed(1)})),borderWidth:0,pointRadius:0,
+     yAxisID:'y',order:6}
   ];
 
-  // Zeitachse bewusst als lineare Achse mit eigener Beschriftung statt
-  // type:'time'. Letzteres braucht einen Datums-Adapter als zusaetzliches
-  // CDN-Skript; faellt der aus, rendert das Chart gar nicht mehr. Die
-  // Formatierung hier kostet ein paar Zeilen und spart die Abhaengigkeit.
-  const HOUR = 3600e3;
-  const spanH = (to - from) / HOUR;
-  const stepH = spanH > 60 ? 12 : spanH > 30 ? 6 : spanH > 14 ? 3 : 2;
-  const step = stepH * HOUR;
-  const tickFmt = new Intl.DateTimeFormat('de-DE',
-    {timeZone:'Europe/Berlin', hour:'2-digit', minute:'2-digit'});
-  const dayFmt = new Intl.DateTimeFormat('de-DE',
-    {timeZone:'Europe/Berlin', weekday:'short', day:'2-digit', month:'2-digit'});
-  const berlinHour = t => +new Intl.DateTimeFormat('en-GB',
-    {timeZone:'Europe/Berlin', hour:'2-digit', hour12:false}).format(t);
-
-  // Ticks auf glatte Stundengrenzen der Ortszeit legen
-  const ticks = [];
-  for (let t = Math.ceil(from/HOUR)*HOUR; t <= to; t += HOUR){
-    if (berlinHour(t) % stepH === 0) ticks.push(t);
+  if (ff.length){
+    ds.push(
+      {label:'Band  ',data:ff.map(d=>({x:d.t,y:+d.hi.toFixed(1)})),borderWidth:0,pointRadius:0,
+       yAxisID:'y',backgroundColor:'rgba(158,123,181,.13)',fill:'+1',order:7},
+      {label:'Band   ',data:ff.map(d=>({x:d.t,y:+d.lo.toFixed(1)})),borderWidth:0,pointRadius:0,
+       yAxisID:'y',order:7},
+      {label:'aus Sebastianskapelle',data:ff.map(d=>({x:d.t,y:+d.mid.toFixed(1)})),
+       borderColor:'#9E7BB5',borderWidth:2,borderDash:[3,3],pointRadius:0,tension:.3,
+       yAxisID:'y',order:2}
+    );
   }
 
-  const opts = {
-    responsive:true, maintainAspectRatio:false, animation:false,
-    interaction:{mode:'nearest', axis:'x', intersect:false},
+  ds.push(
+    {label:'Schätzung rückblickend',data:past,borderColor:'rgba(230,240,239,.32)',
+     borderWidth:1.5,borderDash:[3,3],pointRadius:0,tension:.25,yAxisID:'y',order:4},
+    {label:'Schätzung aus Türkheim',data:fut.map(d=>({x:d.t,y:+d.mid.toFixed(1)})),
+     borderColor:'#F0B429',borderWidth:2.5,borderDash:[5,4],pointRadius:0,tension:.3,
+     yAxisID:'y',order:1},
+    {label:'Welle gemessen',data:wSeries,borderColor:'#E6F0EF',borderWidth:2,
+     pointRadius:0,tension:.25,yAxisID:'y',order:0},
+    {label:'Kanal geschätzt',data:kSeries,borderColor:'#56B0C4',borderWidth:1.6,
+     pointRadius:0,tension:.25,yAxisID:'y1',order:3},
+    {label:'Türkheim',data:tSeries,borderColor:'#4A6C77',borderWidth:1.2,
+     pointRadius:0,tension:.25,yAxisID:'y1',order:5}
+  );
+
+  // Zeitachse als lineare Achse mit eigener Beschriftung - type:'time' braucht
+  // einen Datums-Adapter als zusaetzliches CDN-Skript.
+  const spanH=(to-from)/HOUR;
+  const stepH=spanH>60?12:spanH>30?6:spanH>14?3:2;
+  const ticks=[];
+  for (let t=Math.ceil(from/HOUR)*HOUR; t<=to; t+=HOUR)
+    if (berlinHour(t)%stepH===0) ticks.push(t);
+
+  const opts={
+    responsive:true,maintainAspectRatio:false,animation:false,
+    interaction:{mode:'nearest',axis:'x',intersect:false},
     plugins:{
       legend:{display:false},
       tooltip:{
-        backgroundColor:'#0E2027', borderColor:'#27596A', borderWidth:1,
-        titleFont:{family:'IBM Plex Mono',size:11}, bodyFont:{family:'IBM Plex Mono',size:11},
-        filter: it => !it.dataset.label.startsWith('Band'),
+        backgroundColor:'#0E2027',borderColor:'#27596A',borderWidth:1,
+        titleFont:{family:'IBM Plex Mono',size:11},bodyFont:{family:'IBM Plex Mono',size:11},
+        filter:it=>!it.dataset.label.startsWith('Band'),
         callbacks:{
-          title: it => dayFmt.format(it[0].parsed.x)+' '+tickFmt.format(it[0].parsed.x),
-          label: it => {
-            const u = it.dataset.yAxisID==='y' ? ' cm' : ' m³/s';
-            return ' '+it.dataset.label+': '+it.parsed.y.toFixed(1)+u;
-          }
+          title:it=>stamp(it[0].parsed.x),
+          label:it=>' '+it.dataset.label+': '+it.parsed.y.toFixed(1)
+                 +(it.dataset.yAxisID==='y'?' cm':' m³/s')
         }
       }
     },
     scales:{
-      x:{type:'linear', min:from, max:to,
-         afterBuildTicks: a => { a.ticks = ticks.map(v=>({value:v})); },
+      x:{type:'linear',min:from,max:to,
+         afterBuildTicks:a=>{a.ticks=ticks.map(v=>({value:v}));},
          grid:{color:'rgba(39,89,106,.35)'},
-         ticks:{color:'#8AA8B1', font:{family:'IBM Plex Mono',size:10},
-                maxRotation:0, autoSkip:false,
-                callback: v => berlinHour(v)===0 ? dayFmt.format(v) : tickFmt.format(v)}},
-      y:{position:'left', min:0, suggestedMax:90,
-         title:{display:true, text:'Welle (cm)', color:'#8AA8B1', font:{family:'IBM Plex Sans',size:11}},
+         ticks:{color:'#8AA8B1',font:{family:'IBM Plex Mono',size:10},
+                maxRotation:0,autoSkip:false,
+                callback:v=>berlinHour(v)===0?fmtDay.format(v):fmtTime.format(v)}},
+      y:{position:'left',min:0,suggestedMax:90,
+         title:{display:true,text:'Welle (cm)',color:'#8AA8B1',font:{family:'IBM Plex Sans',size:11}},
          grid:{color:'rgba(39,89,106,.35)'},
-         ticks:{color:'#8AA8B1', font:{family:'IBM Plex Mono',size:10}}},
-      y1:{position:'right', min:0, suggestedMax:26,
-          title:{display:true, text:'Abfluss (m³/s)', color:'#8AA8B1', font:{family:'IBM Plex Sans',size:11}},
+         ticks:{color:'#8AA8B1',font:{family:'IBM Plex Mono',size:10}}},
+      y1:{position:'right',min:0,suggestedMax:26,
+          title:{display:true,text:'Abfluss (m³/s)',color:'#8AA8B1',font:{family:'IBM Plex Sans',size:11}},
           grid:{drawOnChartArea:false},
-          ticks:{color:'#8AA8B1', font:{family:'IBM Plex Mono',size:10}}}
+          ticks:{color:'#8AA8B1',font:{family:'IBM Plex Mono',size:10}}}
     }
   };
 
-  const thrLine = {
-    id:'thr',
-    afterDatasetsDraw(c){
-      const {ctx, chartArea:a, scales} = c;
-      const y = scales.y.getPixelForValue(60);
+  // Regenaussicht: aus der 24h-Prognose ein plausibler Wellenbereich, ohne
+  // Zeitpunkt. Wird als waagrechtes Band in den Bereich gelegt, den die Pegel
+  // nicht mehr abdecken - dort ist es die einzige verfuegbare Information.
+  const lastR=[...coll].reverse().find(d=>isFinite(d.rain24));
+  const lastTu=[...coll].reverse().find(d=>isFinite(d.tue));
+  let rainBand=null;
+  if (lastR && lastTu && lastR.rain24>=RAIN_MIN){
+    const lo=waveOf(fabFromTue(lastTu.tue+interp(RAIN2RISE,lastR.rain24,1)));
+    const hi=waveOf(fabFromTue(lastTu.tue+interp(RAIN2RISE,lastR.rain24,2)));
+    rainBand={lo:Math.min(lo,hi),hi:Math.max(lo,hi),mm:lastR.rain24};
+  }
+
+  const marks={
+    id:'marks',
+    beforeDatasetsDraw(c){
+      const {ctx,chartArea:a,scales}=c;
+      if (farEnd >= to) return;
+      const x=Math.max(scales.x.getPixelForValue(farEnd),a.left);
+      if (x>=a.right) return;
       ctx.save();
+      ctx.fillStyle='rgba(14,32,39,.55)';
+      ctx.fillRect(x,a.top,a.right-x,a.bottom-a.top);
+      if (rainBand){
+        const y1=scales.y.getPixelForValue(rainBand.hi);
+        const y2=scales.y.getPixelForValue(rainBand.lo);
+        ctx.fillStyle='rgba(158,123,181,.20)';
+        ctx.fillRect(x,y1,a.right-x,y2-y1);
+        ctx.strokeStyle='rgba(158,123,181,.55)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+        ctx.beginPath(); ctx.moveTo(x,y1); ctx.lineTo(a.right,y1);
+        ctx.moveTo(x,y2); ctx.lineTo(a.right,y2); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle='rgba(196,168,214,.9)'; ctx.font='10px "IBM Plex Mono"';
+        ctx.fillText(`Regenaussicht ${rainBand.mm.toFixed(0)} mm — Zeitpunkt offen`,x+6,a.bottom-8);
+      } else {
+        ctx.fillStyle='rgba(138,168,177,.75)'; ctx.font='10px "IBM Plex Mono"';
+        ctx.fillText('kein Pegelsignal',x+6,a.bottom-8);
+      }
+      ctx.restore();
+    },
+    afterDatasetsDraw(c){
+      const {ctx,chartArea:a,scales}=c;
+      ctx.save();
+      const y=scales.y.getPixelForValue(60);
       ctx.strokeStyle='rgba(240,180,41,.55)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
       ctx.beginPath(); ctx.moveTo(a.left,y); ctx.lineTo(a.right,y); ctx.stroke();
-      const x = scales.x.getPixelForValue(now);
-      if (x>=a.left && x<=a.right){
-        ctx.setLineDash([]); ctx.strokeStyle='rgba(230,240,239,.35)';
+      const x=scales.x.getPixelForValue(ref);
+      if (x>=a.left&&x<=a.right){
+        ctx.setLineDash([]); ctx.strokeStyle='rgba(230,240,239,.4)';
         ctx.beginPath(); ctx.moveTo(x,a.top); ctx.lineTo(x,a.bottom); ctx.stroke();
-        ctx.fillStyle='rgba(230,240,239,.6)'; ctx.font='10px "IBM Plex Mono"';
-        ctx.fillText('jetzt', x+4, a.top+11);
+        ctx.fillStyle='rgba(230,240,239,.65)'; ctx.font='10px "IBM Plex Mono"';
+        ctx.fillText('letzter Messwert',x+4,a.top+11);
       }
       ctx.restore();
     }
   };
 
   if (chart) chart.destroy();
-  chart = new Chart(document.getElementById('chart'), {type:'line', data:{datasets:ds}, options:opts, plugins:[thrLine]});
+  chart=new Chart(document.getElementById('chart'),
+    {type:'line',data:{datasets:ds},options:opts,plugins:[marks]});
+
+  showSkill(from);
+}
+
+/* ---------- Güte im sichtbaren Fenster ---------- */
+function showSkill(from){
+  const {wave,fc,ref}=DATA;
+  const el=document.getElementById('skill');
+  const est=fc.near.filter(d=>d.t>=from&&d.t<ref);
+  if (est.length<8){ el.textContent=''; return; }
+  let sum=0,n=0,tp=0,fp=0,fn=0,j=0;
+  for (const w of wave){
+    if (w.t<from||w.t>=ref) continue;
+    while (j+1<est.length && Math.abs(est[j+1].t-w.t)<=Math.abs(est[j].t-w.t)) j++;
+    if (Math.abs(est[j].t-w.t)>20*60e3) continue;
+    sum+=Math.abs(est[j].mid-w.v); n++;
+    if (est[j].mid>=60&&w.v>=60) tp++;
+    else if (est[j].mid>=60) fp++;
+    else if (w.v>=60) fn++;
+  }
+  if (!n){ el.textContent=''; return; }
+  let txt=`Im sichtbaren Rückblick lag die Schätzung im Mittel <b>${(sum/n).toFixed(1)} cm</b> `
+        + `neben der Messung (${n} Vergleichspunkte).`;
+  if (tp+fp+fn>0)
+    txt+=` Surfbar-Entscheidung: <b>${tp}</b> richtig, <b>${fp}</b> zu viel, <b>${fn}</b> verpasst.`;
+  el.innerHTML=txt;
 }
 
 /* ---------- Status ---------- */
 function updateStatus(){
-  const {coll, wave, fc} = DATA;
-  const now = Date.now();
-  const lastW = wave[wave.length-1];
-  const lastT = [...coll].reverse().find(d=>isFinite(d.tue));
-  const lastS = [...coll].reverse().find(d=>isFinite(d.seba));
+  const {coll,wave,fc,ref}=DATA;
+  const lastW=wave.length?wave[wave.length-1]:null;
+  const rev=[...coll].reverse();
+  const lastT=rev.find(d=>isFinite(d.tue));
+  const lastS=rev.find(d=>isFinite(d.seba));
+  const lastB=rev.find(d=>isFinite(d.bies));
+  const lastR=rev.find(d=>isFinite(d.rain24));
 
-  drawStaff(lastW ? lastW.v : 0);
+  drawStaff(lastW?lastW.v:0);
 
-  const fmt = t => new Date(t).toLocaleString('de-DE',
-    {timeZone:'Europe/Berlin',weekday:'short',hour:'2-digit',minute:'2-digit'});
-  document.getElementById('stamp').innerHTML =
-    'Welle '+(lastW?fmt(lastW.t):'–')+'<br>Pegel '+(lastT?fmt(lastT.t):'–');
+  // Bezugspunkt ist der juengste Datenpunkt, nicht die Uhr des Geraets.
+  const skew=Math.round((Date.now()-ref)/60e3);
+  let s=`Welle <b>${lastW?fmtTime.format(lastW.t):'–'}</b><br>`
+      + `Pegel <b>${lastT?fmtTime.format(lastT.t):'–'}</b>`;
+  if (Math.abs(skew)>20)
+    s+=`<br><span class="stale">Geräteuhr ${skew>0?'+':''}${skew} min</span>`;
+  document.getElementById('stamp').innerHTML=s;
 
-  const tue = lastT ? lastT.tue : NaN;
-  const fab = isFinite(tue) ? fabFromTue(tue) : NaN;
-  const lag = isFinite(tue) ? lagHours(tue)+FAB2WAVE_LAG : NaN;
+  const tue=lastT?lastT.tue:NaN;
+  const fab=isFinite(tue)?fabFromTue(tue):NaN;
+  const lag=isFinite(tue)?lagHours(tue):NaN;
+  const set=(id,v,u,d)=>document.getElementById(id).innerHTML=
+    (isFinite(v)?v.toFixed(d):'–')+`<small>${u}</small>`;
+  const lastG=rev.find(d=>isFinite(d.see));
+  set('c-tue',tue,'m³/s',2); set('c-fab',fab,'m³/s',1); set('c-lag',lag,'h',1);
+  document.getElementById('c-see').innerHTML=
+    (lastG?seePct(lastG.see).toFixed(0):'–')+'<small>%</small>';
 
-  document.getElementById('c-tue').innerHTML = (isFinite(tue)?tue.toFixed(2):'–')+'<small>m³/s</small>';
-  document.getElementById('c-fab').innerHTML = (isFinite(fab)?fab.toFixed(1):'–')+'<small>m³/s</small>';
-  document.getElementById('c-lag').innerHTML = (isFinite(lag)?lag.toFixed(1):'–')+'<small>h</small>';
+  const horizon=ref+FWD*HOUR;
+  const ahead=fc.near.concat(fc.far)
+                .filter(d=>d.t>=ref&&d.t<=horizon).sort((a,b)=>a.t-b.t);
+  const reach=ahead.length?ahead[ahead.length-1].t:ref;
+  const peak=ahead.length?Math.max(...ahead.map(d=>d.mid)):NaN;
+  const pmax=ahead.length?Math.max(...ahead.map(d=>d.p)):0;
+  document.getElementById('c-peak').innerHTML=
+    (isFinite(peak)?peak.toFixed(0):'–')+'<small>cm</small>';
+  document.getElementById('c-reach').innerHTML=
+    (ahead.length?((reach-ref)/HOUR).toFixed(0):'–')+'<small>h</small>';
 
-  const ahead = fc.filter(d=>d.t>=now);
-  const peak = ahead.length ? Math.max(...ahead.map(d=>d.mid)) : NaN;
-  const pmax = ahead.length ? Math.max(...ahead.map(d=>d.p))   : 0;
-  document.getElementById('c-peak').innerHTML = (isFinite(peak)?peak.toFixed(0):'–')+'<small>cm</small>';
+  const v=document.getElementById('verdict');
+  const running=lastW&&lastW.v>=60;
+  if (running){ v.textContent='Die Welle läuft.'; v.className='verdict on'; }
+  else if (pmax>=0.5){ v.textContent='Sie könnte anspringen.'; v.className='verdict on'; }
+  else { v.textContent='Die Welle läuft nicht.'; v.className='verdict off'; }
 
-  const v = document.getElementById('verdict');
-  const n = document.getElementById('note');
-  const running = lastW && lastW.v >= 60;
-
-  if (running){
-    v.textContent = 'Die Welle läuft.';
-    v.className = 'verdict on';
-  } else if (pmax >= 0.5){
-    v.textContent = 'Sie könnte anspringen.';
-    v.className = 'verdict on';
-  } else {
-    v.textContent = 'Die Welle läuft nicht.';
-    v.className = 'verdict off';
-  }
-
+  const bies=lastB?lastB.bies:NaN;
   let txt;
-  const lastB = [...coll].reverse().find(d=>isFinite(d.bies));
-  const bies = lastB ? lastB.bies : NaN;
-  document.getElementById('c-bies').innerHTML =
-    (isFinite(bies)?bies.toFixed(2):'–')+'<small>m³/s</small>';
-
-  if (!isFinite(tue)) {
-    txt = 'Kein aktueller Pegelwert verfügbar.';
-  } else if (pmax >= 0.5) {
-    const when = ahead.find(d=>d.p>=0.5);
-    txt = `Der geschätzte Kanalabfluss von ${fab.toFixed(1)} m³/s reicht aus. `
-        + `Ab etwa ${fmt(when.t)} bei ${Math.round(pmax*100)} % Wahrscheinlichkeit, `
-        + `erwarteter Höchststand ${peak.toFixed(0)} cm. `
-        + (isFinite(bies)
-            ? (bies >= 5.5
-                ? `Biessenhofen bestätigt mit ${bies.toFixed(1)} m³/s.`
-                : `Biessenhofen liegt allerdings nur bei ${bies.toFixed(1)} m³/s — ohne diese Bestätigung stimmt die Warnung seltener.`)
-            : '');
-  } else if (pmax >= 0.15) {
-    txt = `Knapp: geschätzt ${fab.toFixed(1)} m³/s im Kanal, Höchststand um ${peak.toFixed(0)} cm. `
-        + `Für 60 cm fehlen rund ${Math.max(0,(11.4-fab)).toFixed(1)} m³/s.`;
-  } else {
-    txt = `Geschätzt ${fab.toFixed(1)} m³/s im Kanal — für 60 cm braucht es etwa 11,4. `
-        + `In den nächsten ${isFinite(lag)?lag.toFixed(0):'–'} Stunden ändert sich daran nichts.`;
+  if (!isFinite(tue)) txt='Kein aktueller Pegelwert verfügbar.';
+  else if (pmax>=0.5){
+    const when=ahead.find(d=>d.p>=0.5);
+    txt=`Der geschätzte Kanalabfluss von ${fab.toFixed(1)} m³/s reicht aus. `
+      + `Ab etwa ${stamp(when.t)} bei ${Math.round(pmax*100)} % Wahrscheinlichkeit, `
+      + `erwarteter Höchststand ${peak.toFixed(0)} cm.`
+      + (isFinite(bies)?(bies>=5.5
+          ? ` Biessenhofen bestätigt mit ${bies.toFixed(1)} m³/s.`
+          : ` Biessenhofen liegt nur bei ${bies.toFixed(1)} m³/s — ohne diese Bestätigung stimmt die Warnung seltener.`):'');
   }
-  n.textContent = txt;
+  else if (pmax>=0.15)
+    txt=`Knapp: geschätzt ${fab.toFixed(1)} m³/s im Kanal, Höchststand um ${peak.toFixed(0)} cm. `
+      + `Für 60 cm fehlen rund ${Math.max(0,11.4-fab).toFixed(1)} m³/s.`;
+  else
+    txt=`Geschätzt ${fab.toFixed(1)} m³/s im Kanal — für 60 cm braucht es etwa 11,4. `
+      + `Bis ${stamp(reach)} ändert sich daran nichts.`;
+  document.getElementById('note').textContent=txt;
 
-  const wb = document.getElementById('warnbox');
-  if (lastS && lastS.seba >= SEBA_WARN){
-    wb.innerHTML = `<div class="warn">Vorwarnung: Sebastianskapelle bei
-      ${lastS.seba.toFixed(1)} m³/s (normal 1–2). Im Quellgebiet hat es kräftig geregnet —
-      Türkheim reagiert erfahrungsgemäß rund 10 Stunden später.</div>`;
-  } else {
-    wb.innerHTML = '';
+  // Wenn das gewaehlte Fenster ueber die Pegelreichweite hinausgeht, sagen,
+  // wo die Prognose endet - sonst wirkt der leere Bereich wie ein Fehler.
+  const gapH=Math.round((horizon-reach)/HOUR);
+  if (gapH>=1)
+    document.getElementById('note').textContent +=
+      ` Die letzten ${gapH} Stunden des Fensters decken die Pegel nicht ab.`;
+
+  const b=[];
+  if (lastS&&lastS.seba>=SEBA_WARN){
+    const p=lastG?seePct(lastG.see):NaN;
+    let z=`<div class="banner warn">Vorwarnung: Sebastianskapelle bei ${lastS.seba.toFixed(1)} m³/s
+      (normal 1–2). Im Quellgebiet oberhalb des Grüntensees hat es kräftig geregnet.`;
+    if (isFinite(p))
+      z += p>=55
+        ? ` Der See steht bei ${p.toFixed(0)} % — wenig Puffer, der Schub dürfte durchschlagen.`
+        : ` Der See steht bei ${p.toFixed(0)} % und hat noch Platz; ob er den Schub durchlässt oder wegpuffert, entscheidet der Betreiber.`;
+    b.push(z+'</div>');
   }
+  if (lastR&&lastR.rain24>=RAIN_MIN&&isFinite(tue)){
+    const r1=interp(RAIN2RISE,lastR.rain24,1), r2=interp(RAIN2RISE,lastR.rain24,2);
+    const w1=waveOf(fabFromTue(tue+r1)), w2=waveOf(fabFromTue(tue+r2));
+    b.push(`<div class="banner far">Regenaussicht: ${lastR.rain24.toFixed(0)} mm für die nächsten
+      24 h im Quellgebiet. Türkheim steigt daraufhin binnen anderthalb Tagen typischerweise um
+      ${r1.toFixed(1)} m³/s, in einem von fünf Fällen um ${r2.toFixed(1)} — das entspräche
+      ${Math.min(w1,w2).toFixed(0)} bis ${Math.max(w1,w2).toFixed(0)} cm an der Welle.
+      Wann genau, sagt die Regenprognose nicht.</div>`);
+  }
+  document.getElementById('banners').innerHTML=b.join('');
 }
 
 /* ---------- Start ---------- */
+function fail(title,detail){
+  const v=document.getElementById('verdict');
+  v.textContent=title; v.className='verdict off';
+  document.getElementById('note').textContent=detail;
+  document.getElementById('stamp').textContent='–';
+}
+
 async function boot(){
-  let coll, wave;
+  let coll,wave;
   try{
-    [coll, wave] = await Promise.all([loadCollected(), loadWave()]);
+    [coll,wave]=await Promise.all([loadCollected(),loadWave()]);
   }catch(e){
     fail('Daten nicht erreichbar.',
-         'Das Repository antwortet nicht: ' + e.message +
-         '. Laeuft der Workflow-Schritt "Write recent slices for the web chart"?');
+      'Das Repository antwortet nicht: '+e.message
+      +'. Läuft der Workflow-Schritt "Write recent slices for the web chart"?');
     return;
   }
   try{
-    DATA = {coll, wave, fc: buildForecast(coll)};
+    const lw=wave.length?wave[wave.length-1].t:0;
+    const lc=coll.length?coll[coll.length-1].t:0;
+    const ref=Math.max(lw,lc);
+    if (!ref) throw new Error('keine verwertbaren Zeitstempel');
+    DATA={coll,wave,fc:buildForecast(coll,ref),ref};
     updateStatus();
     render();
   }catch(e){
-    // Daten sind da, aber die Darstellung scheitert - das getrennt melden,
-    // sonst sucht man den Fehler an der falschen Stelle.
     fail('Darstellung fehlgeschlagen.',
-         'Die Daten wurden geladen, das Diagramm laesst sich aber nicht '
-         + 'zeichnen: ' + e.message);
+      'Die Daten wurden geladen, das Diagramm lässt sich aber nicht zeichnen: '+e.message);
     console.error(e);
   }
 }
 
-function fail(title, detail){
-  const v = document.getElementById('verdict');
-  v.textContent = title;
-  v.className = 'verdict off';
-  document.getElementById('note').textContent = detail;
-  document.getElementById('stamp').textContent = '–';
-}
-
-document.querySelectorAll('.tools button').forEach(b=>{
-  b.addEventListener('click', ()=>{
-    document.querySelectorAll('.tools button').forEach(x=>x.removeAttribute('aria-pressed'));
-    b.setAttribute('aria-pressed','true');
-    HOURS = +b.dataset.h;
-    render();
+document.querySelectorAll('#segBack button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#segBack button').forEach(x=>x.removeAttribute('aria-pressed'));
+    b.setAttribute('aria-pressed','true'); HOURS=+b.dataset.h; render();
+  });
+});
+document.querySelectorAll('#segFwd button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#segFwd button').forEach(x=>x.removeAttribute('aria-pressed'));
+    b.setAttribute('aria-pressed','true'); FWD=+b.dataset.f;
+    if (DATA){ updateStatus(); render(); }
   });
 });
 
 boot();
-setInterval(boot, 5*60*1000);   // alle 5 Minuten nachladen
+setInterval(boot,5*60*1000);
 </script>
 </body>
 </html>

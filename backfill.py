@@ -73,7 +73,7 @@ GAUGES = {
         "wasserstand": ("haslach_w_cm",  "haslach_w_time"),
     },
     "biessenhofen": {
-        "base": "https://www.hnd.bayern.de/pegel/iller_lech/biessenhofen-12405507",
+        "base": "https://www.hnd.bayern.de/pegel/iller_lech/biessenhofen-12405005",
         "abfluss":     ("biessenhofen_q_m3s", "biessenhofen_q_time"),
         "wasserstand": ("biessenhofen_w_cm",  "biessenhofen_w_time"),
     },
@@ -198,7 +198,7 @@ def main() -> int:
             s = fetch_hnd_history(cfg["base"], methode, args.days)
             if s is not None and len(s):
                 hist[(g, methode)] = s
-                print(f"    ✓ {len(s)} Werte  {s.index.min():%d.%m %H:%M} – {s.index.max():%d.%m %H:%M}")
+                print(f"    ✓ {len(s)} Werte  {s.index.min():%d.%m.%Y %H:%M} – {s.index.max():%d.%m.%Y %H:%M}")
     if not hist:
         print("Keine historischen Daten geholt — Abbruch (HND erreichbar? days-Param korrekt?).")
         return 1
@@ -241,7 +241,14 @@ def main() -> int:
                 continue
             r = {c: None for c in df.columns}
             # collected_at = Slot als UTC ISO (Berlin -> UTC)
-            utc = slot.tz_localize("Europe/Berlin").tz_convert("UTC")
+            # ambiguous/nonexistent: bei der Zeitumstellung gibt es Stunden, die
+            # doppelt (Okt) bzw. gar nicht (Mär) existieren. Ohne diese Argumente
+            # wirft pandas dort einen ValueError und der ganze Lauf bricht ab.
+            # ambiguous=True -> im Zweifel Sommerzeit; shift_forward -> nicht
+            # existierende Zeit auf die nächste gültige schieben.
+            utc = slot.tz_localize(
+                "Europe/Berlin", ambiguous=True, nonexistent="shift_forward"
+            ).tz_convert("UTC")
             r["collected_at"] = utc.isoformat()
             r["_slot"] = slot
             got = False

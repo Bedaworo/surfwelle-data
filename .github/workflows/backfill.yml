@@ -1,0 +1,66 @@
+name: Backfill gaps
+
+# Füllt einmal täglich Lücken in data/collected.csv aus der HND-Historie und der
+# Open-Meteo Archive-API. Läuft bewusst NICHT im 15-Min-Takt: die historischen
+# Quellen haben mehrere Tage Verzug (ERA5 ~5 Tage), ein häufigerer Lauf brächte
+# nichts und würde nur den schlanken Collector-Betrieb stören.
+
+on:
+  schedule:
+    # Täglich 04:00 UTC (06:00 Berlin Sommerzeit) — außerhalb der typischen
+    # Surf-/Analysezeiten, geringe GitHub-Actions-Last.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Wie viele Tage rückwirkend prüfen'
+        required: false
+        default: '14'
+
+permissions:
+  contents: write
+
+# GLEICHE Gruppe wie collect.yml: verhindert, dass Backfill und Live-Collector
+# gleichzeitig an collected.csv committen. Backfill wartet ggf., statt zu kollidieren.
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Backfill Pegel (HND-Historie)
+        run: python backfill.py --days "${{ github.event.inputs.days || '14' }}" --inplace
+
+      - name: Backfill Wetter (Open-Meteo Archive)
+        run: python backfill_weather.py --inplace
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain data/)" ]; then
+            git add data/
+            git commit -m "backfill: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            for i in 1 2 3; do
+              git pull --rebase origin "${GITHUB_REF_NAME}" && git push && break
+              echo "Push attempt $i failed, retrying..."
+              sleep 5
+            done
+          else
+            echo "Keine Lücken gefunden — nichts zu committen."
+          fi

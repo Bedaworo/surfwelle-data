@@ -1,0 +1,114 @@
+name: Tools (manuell)
+
+# Ein-Menü-Workflow für alle manuellen Aufgaben — komplett im GitHub-Browser,
+# kein lokales Terminal nötig. Unter "Actions → Tools (manuell) → Run workflow"
+# im Dropdown "aufgabe" auswählen. Das Ergebnis steht anschließend im Log des
+# Laufs (Job aufklappen).
+#
+# Die Aufgaben, die Daten schreiben (backfill_365, nightly_backfill_test),
+# committen NICHT automatisch — sie zeigen das Ergebnis nur im Log bzw. laden es
+# als herunterladbares Artefakt hoch. So kannst du erst prüfen, bevor etwas
+# Echtes passiert. Zum tatsächlichen Übernehmen gibt es "backfill_365_commit".
+
+on:
+  workflow_dispatch:
+    inputs:
+      aufgabe:
+        description: 'Was soll laufen?'
+        required: true
+        default: 'detect_flood_waves'
+        type: choice
+        options:
+          - detect_flood_waves      # Fließwellen-Analyse (nur Ausgabe, ändert nichts)
+          - backfill_dry_run        # Backfill-Vorschau: was WÜRDE gefüllt (schreibt nichts)
+          - backfill_365_preview    # 365-Tage-Backfill rechnen, Ergebnis als Artefakt (kein Commit)
+          - backfill_365_commit     # 365-Tage-Backfill WIRKLICH übernehmen und committen
+      days:
+        description: 'Tage rückwirkend (für die Backfill-Aufgaben)'
+        required: false
+        default: '365'
+
+permissions:
+  contents: write
+
+# Gleiche Gruppe wie der Collector: nie gleichzeitig an collected.csv schreiben.
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # --- Nur Analyse, ändert keine Daten -------------------------------------
+      - name: Fließwellen-Analyse
+        if: ${{ github.event.inputs.aufgabe == 'detect_flood_waves' }}
+        run: |
+          echo "::group::detect_flood_waves.py"
+          python detect_flood_waves.py
+          echo "::endgroup::"
+
+      # --- Backfill-Vorschau: schreibt nichts, zeigt nur was käme --------------
+      - name: Backfill Dry-Run (Pegel)
+        if: ${{ github.event.inputs.aufgabe == 'backfill_dry_run' }}
+        run: |
+          echo "::group::backfill.py --dry-run"
+          python backfill.py --dry-run --days "${{ github.event.inputs.days || '365' }}"
+          echo "::endgroup::"
+
+      # --- 365er-Backfill rechnen, aber NICHT committen; Ergebnis als Artefakt -
+      - name: Backfill 365 Vorschau (Pegel + Wetter, kein Commit)
+        if: ${{ github.event.inputs.aufgabe == 'backfill_365_preview' }}
+        run: |
+          echo "::group::backfill.py (schreibt collected_backfilled.csv)"
+          python backfill.py --days "${{ github.event.inputs.days || '365' }}"
+          echo "::endgroup::"
+          echo "::group::backfill_weather.py auf die Vorschau-Datei"
+          python backfill_weather.py --csv data/collected_backfilled.csv --inplace
+          echo "::endgroup::"
+          echo "Vorschau liegt in data/collected_backfilled.csv (wird als Artefakt hochgeladen)."
+
+      - name: Vorschau-Datei als Artefakt hochladen
+        if: ${{ github.event.inputs.aufgabe == 'backfill_365_preview' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: collected_backfilled_preview
+          path: data/collected_backfilled.csv
+          if-no-files-found: warn
+
+      # --- 365er-Backfill WIRKLICH übernehmen und committen -------------------
+      - name: Backfill 365 übernehmen (Pegel + Wetter) und committen
+        if: ${{ github.event.inputs.aufgabe == 'backfill_365_commit' }}
+        run: |
+          echo "::group::backfill.py --inplace"
+          python backfill.py --days "${{ github.event.inputs.days || '365' }}" --inplace
+          echo "::endgroup::"
+          echo "::group::backfill_weather.py --inplace"
+          python backfill_weather.py --inplace
+          echo "::endgroup::"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain data/)" ]; then
+            git add data/
+            git commit -m "backfill 365d: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            for i in 1 2 3; do
+              git pull --rebase origin "${GITHUB_REF_NAME}" && git push && break
+              echo "Push attempt $i failed, retrying..."
+              sleep 5
+            done
+          else
+            echo "Keine Lücken gefunden — nichts zu committen."
+          fi

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabrikkanal Augsburg-Göggingen — Prognose</title>
+<style>
+  :root{
+    --navy:#0b1a24; --navy2:#0f2430; --line:#1d4657;
+    --ink:#e6f0f2; --dim:#7ea4ad; --faint:#4d7885;
+    --water:#38c7d6; --fore:#f2b452; --forec:#ec5eb0; --rain:#a98be0; --rainbar:#3f6aa8;
+    --pegel:#8bd8ea; --warn:#e06b6b; --cap:#7ea4ad;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:"Helvetica Neue",Arial,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--navy);color:var(--ink);font-family:var(--sans);padding:22px 16px 48px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto}
+  header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;border-bottom:1px solid var(--line);padding-bottom:14px}
+  h1{font-size:19px;font-weight:800;letter-spacing:-.02em}
+  h1 span{color:var(--water)}
+  .sub{font-family:var(--mono);font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin-top:3px}
+  #updated{font-family:var(--mono);font-size:11px;color:var(--faint);text-align:right}
+  h2.section{font-size:13px;font-family:var(--mono);color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin:26px 0 8px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
+  @media(max-width:640px){.cards{grid-template-columns:repeat(2,1fr)}}
+  .card{background:var(--navy2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .card .k{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}
+  .card .v{font-family:var(--mono);font-size:24px;font-weight:600;margin-top:4px;letter-spacing:-.02em}
+  .card .u{font-size:12px;color:var(--faint);font-weight:400}
+  .card .sv{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:2px}
+  .chartbox{background:var(--navy2);border:1px solid var(--line);border-radius:12px;padding:14px 8px 8px;position:relative;margin-top:10px}
+  canvas{display:block;width:100%;height:auto;touch-action:none}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:6px 10px 8px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .legend b{display:inline-block;width:20px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+  .tip{position:absolute;pointer-events:none;background:#04303a;color:var(--ink);border:1px solid var(--water);border-radius:7px;padding:7px 9px;font-family:var(--mono);font-size:11px;opacity:0;transition:opacity .08s;white-space:nowrap;z-index:5;transform:translate(-50%,-115%)}
+  .ctrls{display:flex;gap:22px;flex-wrap:wrap;margin:14px 0 2px;align-items:center}
+  .ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .ctrl .lbl{font-family:var(--mono);font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-right:2px}
+  button{background:var(--navy2);color:var(--dim);border:1px solid var(--line);font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:7px;cursor:pointer}
+  button.on{background:var(--water);color:#04222a;border-color:var(--water);font-weight:700}
+  .ctrl.fore button.on{background:var(--rain);color:#160b28;border-color:var(--rain)}
+  .note{background:rgba(63,106,168,.09);border:1px solid rgba(63,106,168,.3);border-radius:9px;padding:10px 13px;margin-top:14px;font-size:12.5px;color:#c7d9e0}
+  .note.warn{background:rgba(224,107,107,.1);border-color:rgba(224,107,107,.35);color:#f0c4c4}
+  footer{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:20px;line-height:1.7}
+  a{color:var(--water);text-decoration:none}
+  .loading{text-align:center;padding:60px 0;font-family:var(--mono);color:var(--dim)}
+  .badge{display:inline-block;font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:5px;margin-left:6px;vertical-align:middle}
+  .badge.warn{background:rgba(224,107,107,.18);color:var(--warn);border:1px solid rgba(224,107,107,.4)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Fabrikkanal Augsburg-Göggingen <span>· Prognose</span></h1>
+      <div class="sub">Kraftwerk Amann &amp; Söhne · Ackermannwehr · Durchfluss 4,5 h · Regen-Ausblick unkalibriert</div></div>
+    <div id="updated">lade …</div>
+  </header>
+  <div id="app"><div class="loading">Lade Live- und Verlaufsdaten aus GitHub + Open-Meteo …</div></div>
+  <footer id="foot"></footer>
+</div>
+<script>
+/* =========================================================================
+   Fabrikkanal (Augsburg-Göggingen) — Durchfluss-Prognose
+   Aufbau bewusst analog zu index.html (Surfwelle):
+     - gleiche Rückblick-/Ausblick-Stufen (PAST_OPTS/FORE_OPTS)
+     - Nahprognose (wenige Stunden) aus dem laufenden Türkheim-Pegel
+     - Regen-Ausblick (mehrere Tage) nur qualitativ, unkalibriert
+
+   Kalibrierbasis (neu, diesmal deutlich größer): kombinierte 2025+2026
+   Fabrikkanal-Messwerte (data/fabrikkanal_2025.csv + fabrikkanal_2026.csv,
+   n=34.913 15-Min-Werte, 22.07.2025–20.07.2026) gegen den laufenden
+   Türkheim-Pegel (data/collected.csv). Bester Vorlauf per Kreuzkorrelation
+   weiterhin ~4,5 h.
+
+   WICHTIGER FUND ggü. der letzten Version: Die Beziehung ist NICHT
+   quadratisch-unbegrenzt, sondern SÄTTIGT bei ca. 23 m³/s — die Ackermann-
+   wehr-Diversion in den Fabrikkanal hat offenbar eine physische Kapazitäts-
+   grenze. Beim Hochwasser 24./25.02.2026 erreichte Türkheim 149 m³/s, der
+   Fabrikkanal aber nur ~22,5 m³/s. Die Transferfunktion ist deshalb jetzt
+   eine monoton sättigende Stützstellen-Kurve (wie die Wellen-Transfer-
+   funktion in index.html), keine Parabel mehr — R²=0,886, mittlerer
+   Fehler 1,5 m³/s (vorher: Parabel R²=0,75, Fehler 2,3 m³/s).
+   ========================================================================= */
+
+const REPO="https://raw.githubusercontent.com/Bedaworo/surfwelle-data/main/data/";
+const HOUR=3600e3, DAY=24*HOUR;
+const LAG=4.5; // h, bester Vorlauf Türkheim -> Fabrikkanal (Kreuzkorrelation)
+
+/* Türkheim(t-LAG) -> Fabrikkanal-Q(t), gesättigte Stützstellen-Kurve.
+   Stützpunkte = Bin-Mittelwerte aus dem kombinierten 2025+2026-Datensatz. */
+const KNOTS=[[0,2.5],[2,3.6],[4,5.3],[6,7.6],[8,11.3],[10,14.4],[12,16.2],[14.5,19.4],[18,21.7],[22.5,23.1],[35,23.2],[65,23.0],[130,22.6]];
+const CAP=23.2, RESID_SD=2.16;
+function transfer(f){if(f==null||isNaN(f))return null;if(f<=KNOTS[0][0])return KNOTS[0][1];
+  for(let i=0;i<KNOTS.length-1;i++){const[a,ya]=KNOTS[i],[b,yb]=KNOTS[i+1];if(f<=b)return ya+(yb-ya)*(f-a)/(b-a);}return KNOTS.at(-1)[1];}
+
+/* Regen-Zufluss-Index für den mehrtägigen Ausblick — identische Einzugs-
+   Punkte wie im Wellen-Chart, jeweils +LAG h zusätzliche Laufzeit bis zum
+   Fabrikkanal. Ergebnis ist ein grober Q-Bereich, KEINE scharfe Zahl. */
+const CATCHMENT=[
+  ["Oberjoch",       47.5159,10.4058,30+LAG,1.2],
+  ["Nesselwang",     47.6197,10.5006,27+LAG,1.1],
+  ["Marktoberdorf",  47.7800,10.6167,22+LAG,1.1],
+  ["Bad Wörishofen", 48.0058,10.5969,16+LAG,1.0],
+  ["Türkheim",       48.0619,10.6386,13+LAG,1.0],
+  ["Schwabmünchen",  48.1786,10.7594, 9+LAG,0.9],
+  ["Bobingen",       48.2700,10.8300, 6+LAG,0.9],
+];
+/* Regen-Ausblick, verankert am AKTUELLEN Durchfluss statt an absoluten Regen->m³/s-
+   Werten (die alte Variante sprang bei Regen=0 auf einen Jahresmittel-Wert, der mit
+   der aktuellen Lage nichts zu tun hatte).
+   Basis ist die klimatologische Entwicklung aus den eigenen Türkheim-Daten:
+     - Median-Verhältnis nach 24 h: 0,96 (leichter Rückgang)
+     - Streuung 10./90. Perzentil: 24 h 0,72–1,42 · 72 h 0,57–1,90
+   Darauf addiert sich ein Regen-Beitrag aus dem Zufluss-Index. Der Regenanteil ist
+   und bleibt UNKALIBRIERT (Regen->Abfluss bislang nur r≈0,22) — deshalb ist das
+   Ergebnis ein Bereich, keine Linie. */
+function recessFactor(hAhead){return Math.pow(0.961,hAhead/24);}
+function spreadQ(hAhead){
+  // lineare Interpolation der gemessenen Perzentile zwischen 0 h, 24 h und 72 h
+  const pts=[[0,1,1],[24,0.718,1.419],[72,0.574,1.898]];
+  if(hAhead<=0)return[1,1];
+  for(let i=0;i<pts.length-1;i++){const[a,la,ha]=pts[i],[b,lb,hb]=pts[i+1];
+    if(hAhead<=b){const f=(hAhead-a)/(b-a);return[la+(lb-la)*f,ha+(hb-ha)*f];}}
+  return[pts.at(-1)[1],pts.at(-1)[2]];
+}
+function rainOutlookQ(idx,base,hAhead){
+  if(idx==null||base==null)return null;
+  const rainAdd=idx*0.12;                       // unkalibrierter Regen-Beitrag
+  const[loF,hiF]=spreadQ(hAhead), rec=recessFactor(hAhead);
+  const center=Math.min(CAP,base*rec+rainAdd);
+  const lo=Math.max(0.5,Math.min(CAP,base*loF+rainAdd*0.3));
+  const hi=Math.min(CAP+0.5,base*hiF+rainAdd*1.6);
+  const chance=Math.max(0,Math.min(1,(idx-8)/40));
+  return{center,lo,hi,chance,idx};
+}
+
+const floorH=ms=>Math.floor(ms/HOUR)*HOUR;
+const SMEAR=[1,2,3,4,3,2,1],SMSUM=16;
+function arriveIdx(pts,H){let idx=0,any=false;
+  for(const p of pts){let c=0,seen=false;
+    // WICHTIG: p.lag ist nicht ganzzahlig (Einzugs-Laufzeit + LAG 4,5h), die Regen-
+    // karte ist aber auf volle Stunden indiziert -> Schlüssel runden, sonst geht
+    // JEDER Lookup ins Leere (Bug: Regen-Ausblick blieb komplett leer, "kein Signal").
+    for(let d=-3;d<=3;d++){const r=p.rain[floorH(H-p.lag*HOUR+d*HOUR)];if(r!=null){c+=SMEAR[d+3]*r;seen=true;}}
+    if(seen){idx+=p.weight*c/SMSUM;any=true;}}
+  return any?idx:null;}
+async function getRainForecast(){
+  const lat=CATCHMENT.map(c=>c[1]).join(","),lon=CATCHMENT.map(c=>c[2]).join(",");
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=precipitation&timezone=UTC&past_days=2&forecast_days=4`;
+  const r=await fetch(url);if(!r.ok)throw new Error("Open-Meteo "+r.status);
+  const d=await r.json(),locs=Array.isArray(d)?d:[d];
+  return CATCHMENT.map((c,i)=>{const loc=locs[i]||{hourly:{time:[],precipitation:[]}};
+    const T=loc.hourly.time,P=loc.hourly.precipitation,m={};
+    for(let j=0;j<T.length;j++)m[floorH(Date.parse(T[j]+"Z"))]=P[j]||0;
+    return{name:c[0],lag:c[3],weight:c[4],rain:m};});
+}
+
+async function getCSV(name){const r=await fetch(REPO+name,{cache:"no-store"});if(!r.ok)throw new Error(name+" HTTP "+r.status);
+  const rows=(await r.text()).trim().split(/\r?\n/),head=rows[0].split(",");
+  return rows.slice(1).map(l=>{const c=l.split(","),o={};head.forEach((h,i)=>o[h.trim()]=c[i]);return o;});}
+
+const QUARTER=900e3; // 15 Min — Raster für die feine, tatsächliche Anzeige (wie beim Wellen-Chart)
+
+async function build(){
+  let fk25,fk26,collected,rainOk=true,pts=null;
+  try{[fk25,fk26,collected]=await Promise.all([getCSV("fabrikkanal_2025.csv"),getCSV("fabrikkanal_2026.csv"),getCSV("collected.csv")]);}
+  catch(e){document.getElementById("app").innerHTML='<div class="loading">GitHub nicht erreichbar ('+e.message+')</div>';return;}
+  try{pts=await getRainForecast();}catch(e){rainOk=false;}
+
+  // Gemessene Fabrikkanal-Historie in NATIVER 15-Min-Auflösung (kein Stunden-Binning
+  // mehr — glatter und schließt ohne Rundungslücke direkt an den letzten Messwert an)
+  const measFine=[];
+  function ingest(rows){
+    for(const r of rows){
+      const t=Date.parse(r.time+"Z"); const q=parseFloat(r.fabrikkanal_q_m3s);
+      if(isNaN(t)||isNaN(q))continue;
+      const p=parseFloat(r.fabrikkanal_pegel_oberwasser_m);
+      measFine.push({t,q,pegel:isNaN(p)?null:p});
+    }
+  }
+  ingest(fk25); ingest(fk26);
+  measFine.sort((a,b)=>a.t-b.t);
+  const lastMeasT=measFine.length?measFine.at(-1).t:null;
+  const lastMeasQ=measFine.length?measFine.at(-1).q:null;
+
+  // Live Türkheim: hourly (für den Regen-Ausblick-Index, da Open-Meteo nur stündlich
+  // auflöst) UND als sortierte 15-Min-Rohpunkte (für die feine Nahprognose)
+  const flowH={},flowN={},flowPts=[];
+  for(const r of collected){const ms=Date.parse((r.tuerkheim_time||"")+"Z"),v=parseFloat(r.tuerkheim_q_m3s);if(isNaN(ms)||isNaN(v))continue;
+    const h=floorH(ms);flowH[h]=(flowH[h]||0)+v;flowN[h]=(flowN[h]||0)+1;flowPts.push({t:ms,v});}
+  for(const h in flowH)flowH[h]/=flowN[h];
+  flowPts.sort((a,b)=>a.t-b.t);
+  let curTue={val:null,ageMin:null};
+  for(let i=collected.length-1;i>=0;i--){
+    const v=parseFloat(collected[i].tuerkheim_q_m3s); if(isNaN(v))continue;
+    const t=Date.parse((collected[i].tuerkheim_time||"")+"Z");
+    curTue={val:v,ageMin:isNaN(t)?null:Math.round((Date.now()-t)/60000)}; break;
+  }
+
+  const trueNow=Date.now(), now=floorH(trueNow), start=now-15*DAY, end=now+7*DAY;
+
+  // Feine Nahprognose (15-Min-Raster, gleitendes Fenster über die rohen 15-Min-
+  // Türkheim-Messwerte statt über Stunden-Mittel — arbeitet auf echten Zeitstempeln,
+  // daher kein Rundungs-Mismatch mehr möglich (das war der frühere Bug bei LAG=4,5h))
+  const foreFine=[];
+  let lo=0;
+  for(let h=start;h<=end;h+=QUARTER){
+    const w0=h-(LAG+2)*HOUR, w1=h-(LAG-2)*HOUR;
+    while(lo<flowPts.length&&flowPts[lo].t<w0)lo++;
+    let peak=null;for(let i=lo;i<flowPts.length&&flowPts[i].t<=w1;i++)if(peak==null||flowPts[i].v>peak)peak=flowPts[i].v;
+    const fore=(peak!=null)?Math.round(transfer(peak)*10)/10:null;
+    foreFine.push({t:h,fore});
+  }
+
+  // Ankerwert für den Regen-Ausblick = letzter Punkt der Nahprognose. Dadurch setzt
+  // das Ausblick-Band genau dort an, wo die Türkheim-basierte Prognose endet, statt
+  // auf ein davon unabhängiges Niveau zu springen.
+  const handoverT=now+(LAG+2)*HOUR;
+  let anchor=null;
+  for(const d of foreFine){if(d.fore!=null&&d.t<=handoverT)anchor=d.fore;}
+
+  // Regen-Ausblick-Index bleibt auf Stunden-Raster (Open-Meteo liefert nur stündlich)
+  const roSeries=[];
+  for(let h=start;h<=end;h+=HOUR){
+    let ro=null;
+    if(pts&&h>handoverT){
+      const idx=arriveIdx(pts,h);
+      ro=rainOutlookQ(idx,anchor,(h-handoverT)/HOUR);
+    }
+    roSeries.push({t:h,ro});
+  }
+
+  render(roSeries,measFine,foreFine,now,trueNow,curTue,lastMeasT,lastMeasQ,rainOk);
+}
+
+const PAST_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[168,"7 T"],[336,"14 T"]];
+const FORE_OPTS=[[2,"2 h"],[4,"4 h"],[6,"6 h"],[12,"12 h"],[24,"24 h"],[48,"48 h"],[72,"3 T"]];
+let S={roSeries:[],measFine:[],foreFine:[],now:0,trueNow:0,past:12,fore:12};
+try{
+  const sp=localStorage.getItem('fabrikkanal_past_h'), sf=localStorage.getItem('fabrikkanal_fore_h');
+  if(sp)S.past=+sp; if(sf)S.fore=+sf;
+}catch(e){}
+
+function render(roSeries,measFine,foreFine,now,trueNow,curTue,lastMeasT,lastMeasQ,rainOk){
+  S.roSeries=roSeries;S.measFine=measFine;S.foreFine=foreFine;S.now=now;S.trueNow=trueNow;
+  const fut=foreFine.filter(d=>d.t>trueNow&&d.t<=trueNow+(LAG+2)*HOUR&&d.fore!=null);
+  const foreMax=fut.length?Math.max(...fut.map(d=>d.fore)):null;
+  const roFut=roSeries.filter(d=>d.t>now+(LAG+2)*HOUR&&d.ro);
+  const bestRo=roFut.length?roFut.reduce((a,b)=>b.ro.chance>a.ro.chance?b:a):null;
+  const lastAgoH=lastMeasT!=null?Math.round((Date.now()-lastMeasT)/HOUR):null;
+  const pastBtns=PAST_OPTS.map(([h,l])=>`<button data-p="${h}" class="${h===S.past?'on':''}">${l}</button>`).join("");
+  const foreBtns=FORE_OPTS.map(([h,l])=>`<button data-f="${h}" class="${h===S.fore?'on':''}">${l}</button>`).join("");
+  const lagList=CATCHMENT.map(c=>`${c[0]} ~${c[3].toFixed(1)} h`).join(" · ");
+
+  document.getElementById("app").innerHTML=`
+    <div class="cards">
+      <div class="card"><div class="k">Fabrikkanal zuletzt gemessen</div>
+        <div class="v">${lastMeasQ!=null?lastMeasQ.toFixed(1):'—'}<span class="u"> m³/s</span></div>
+        <div class="sv">${lastMeasT!=null?(new Date(lastMeasT).toLocaleDateString('de-DE')+' · vor '+lastAgoH+' h'):''}</div></div>
+      <div class="card"><div class="k">Prognose (${LAG}h Laufzeit)</div>
+        <div class="v" style="color:var(--fore)">${foreMax!=null?foreMax.toFixed(1):'—'}<span class="u"> m³/s</span></div>
+        <div class="sv">±${RESID_SD.toFixed(1)} m³/s · aus Türkheim jetzt</div></div>
+      <div class="card"><div class="k">Regen-Ausblick (Tage)</div>
+        <div class="v" style="color:var(--rain)">${bestRo?bestRo.ro.lo.toFixed(1)+'–'+bestRo.ro.hi.toFixed(1):'—'}<span class="u"> m³/s</span></div>
+        <div class="sv">${bestRo?(bestRo.ro.chance>0.02?Math.round(bestRo.ro.chance*100)+'% Regensignal':'kein Regensignal'):'—'}</div></div>
+      <div class="card"><div class="k">Türkheim jetzt</div>
+        <div class="v">${curTue.val!=null?curTue.val.toFixed(1):'—'}<span class="u"> m³/s</span></div>
+        <div class="sv">${curTue.ageMin!=null?('vor '+curTue.ageMin+' min'):''}</div></div>
+    </div>
+    <div class="ctrls">
+      <div class="ctrl"><span class="lbl">Rückblick</span>${pastBtns}</div>
+      <div class="ctrl fore"><span class="lbl">Ausblick</span>${foreBtns}</div>
+    </div>
+    <div class="chartbox">
+      <canvas id="cv"></canvas>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="legend">
+      <span><b style="background:var(--water)"></b>gemessen (Fabrikkanal)</span>
+      <span><b style="background:var(--fore)"></b>Prognose ${LAG}h (Türkheim-Transfer)</span>
+      <span><b style="background:rgba(169,139,224,.35)"></b>Regen-Ausblick (unkalibriert)</span>
+      <span><b style="background:var(--cap)"></b>Kapazitätsgrenze Kanal ~${CAP.toFixed(0)} m³/s</span>
+    </div>
+    <div class="note">
+      Nahprognose: Grad-Stützstellen-Transferfunktion Türkheim(t−${LAG}h) → Fabrikkanal-Q, kalibriert auf
+      2025+2026 kombiniert (22.07.2025–20.07.2026, n=34.913, <b>R²=0,886</b>, mittlerer Fehler
+      <b>1,5 m³/s</b>) — inkl. Hochwasser 24./25.02.2026. Dabei zeigte sich: der Kanal <b>sättigt bei
+      ca. 23 m³/s</b> (Türkheim erreichte dabei 149 m³/s, der Fabrikkanal blieb bei ~22,5 m³/s) —
+      vermutlich eine physische Kapazitätsgrenze der Ackermannwehr-Diversion, möglicherweise zusätzlich
+      eine Schutzschließung bei extremen Pegeln (dafür gibt es bislang nur wenige Datenpunkte).
+      Regen-Ausblick: setzt am Ende der Nahprognose an und entwickelt sich von dort weiter. Der
+      Bandverlauf stammt aus der gemessenen Klimatologie eurer eigenen Türkheim-Reihe (Median nach
+      24 h: 0,96 × aktueller Wert; 10./90. Perzentil 0,72–1,42 nach 24 h, 0,57–1,90 nach 72 h).
+      Darauf addiert sich ein Regen-Beitrag aus den 7 Einzugsgebiets-Punkten (${lagList}) — dieser
+      Anteil ist <b>unkalibriert</b> (Regen→Abfluss bislang nur r≈0,22), deshalb ein Bereich statt
+      einer Linie.
+    </div>
+    <div class="note">
+      Bodenfeuchte (Oberjoch/Kaufbeuren) wird bereits im Collector mitgeloggt, fließt aber noch nicht in
+      den Ausblick ein — analog zum Vorgehen beim Wellen-Chart (erst sammeln, später ggf. einbauen,
+      sobald genug Regenereignisse durchlaufen sind).
+    </div>
+    ${lastAgoH>72?`<div class="note warn">Der letzte Fabrikkanal-Messwert liegt ${Math.round(lastAgoH/24)} Tage zurück — die Datei
+      ist ein periodischer manueller Import, kein Teil des 15-Min-Collectors. Die Lücke zwischen letztem
+      Messwert und „jetzt" in der Rückblick-Ansicht ist deshalb normal, kein Fehler.</div>`:''}
+    ${!rainOk?'<div class="note warn">Open-Meteo aktuell nicht erreichbar — Regen-Ausblick fehlt in dieser Ansicht.</div>':''}
+  `;
+
+  document.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{S.past=+b.dataset.p;
+    document.querySelectorAll("[data-p]").forEach(x=>x.classList.toggle('on',x===b));
+    try{localStorage.setItem('fabrikkanal_past_h',S.past);}catch(e){} draw();});
+  document.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{S.fore=+b.dataset.f;
+    document.querySelectorAll("[data-f]").forEach(x=>x.classList.toggle('on',x===b));
+    try{localStorage.setItem('fabrikkanal_fore_h',S.fore);}catch(e){} draw();});
+  document.getElementById("updated").textContent="Stand: "+new Date().toLocaleString('de-DE');
+  wireHover(); draw();
+}
+
+const PAD={l:44,r:14,t:16,b:26};
+let GEO=null;
+function draw(){
+  const cv=document.getElementById("cv");if(!cv)return;
+  const from=S.now-S.past*HOUR, to=S.now+S.fore*HOUR;
+  const meas=S.measFine.filter(d=>d.t>=from&&d.t<=to);
+  const fore=S.foreFine.filter(d=>d.t>=from&&d.t<=to);
+  const ro=S.roSeries.filter(d=>d.t>=from&&d.t<=to&&d.ro);
+  const showRain=S.fore>(LAG+2);
+  const cssW=cv.parentElement.clientWidth-16, cssH=Math.min(430,Math.max(270,cssW*0.5)), dpr=window.devicePixelRatio||1;
+  cv.width=cssW*dpr;cv.height=cssH*dpr;cv.style.height=cssH+"px";
+  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,cssW,cssH);
+  const qMax=Math.max(28,Math.max(0,...meas.map(d=>d.q||0),...fore.map(d=>d.fore||0),...ro.map(d=>d.ro.hi))*1.12);
+  const X=t=>PAD.l+(t-from)/(to-from)*(cssW-PAD.l-PAD.r), Y=v=>PAD.t+(1-v/qMax)*(cssH-PAD.t-PAD.b);
+  GEO={X,Y,from,to,meas,fore,ro};
+
+  g.font="10px "+getComputedStyle(document.body).getPropertyValue('--mono');g.textAlign="right";g.textBaseline="middle";
+  const ticks=[0,Math.round(qMax*0.25),Math.round(qMax*0.5),Math.round(qMax*0.75),Math.round(qMax)];
+  ticks.forEach(v=>{g.strokeStyle="#173846";g.beginPath();g.moveTo(PAD.l,Y(v));g.lineTo(cssW-PAD.r,Y(v));g.stroke();g.fillStyle="#5f8b96";g.fillText(v,PAD.l-6,Y(v));});
+  // Kapazitätsgrenze
+  g.strokeStyle="#4d7885";g.setLineDash([2,4]);g.lineWidth=1;g.beginPath();g.moveTo(PAD.l,Y(CAP));g.lineTo(cssW-PAD.r,Y(CAP));g.stroke();g.setLineDash([]);
+  g.textAlign="left";g.fillStyle="#7ea4ad";g.fillText("Kapazität ~"+CAP.toFixed(0),PAD.l+4,Y(CAP)-8);
+
+  g.fillStyle="#5f8b96";g.textAlign="center";g.textBaseline="top";
+  const spanH=(to-from)/HOUR;
+  if(spanH<=52){const step=(spanH<=14?2:6)*HOUR;
+    for(let t=Math.ceil(from/step)*step;t<=to;t+=step){const d=new Date(t);
+      g.strokeStyle="#12303d";g.beginPath();g.moveTo(X(t),PAD.t);g.lineTo(X(t),cssH-PAD.b);g.stroke();
+      const lab=d.getHours()===0?d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}):d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+      g.fillText(lab,X(t),cssH-PAD.b+5);}
+  }else{const dayMs=24*HOUR;
+    for(let t=Math.ceil(from/dayMs)*dayMs;t<=to;t+=dayMs){g.strokeStyle="#12303d";g.beginPath();g.moveTo(X(t),PAD.t);g.lineTo(X(t),cssH-PAD.b);g.stroke();
+      g.fillText(new Date(t).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}),X(t),cssH-PAD.b+5);}}
+
+  if(showRain&&ro.length){
+    g.fillStyle="rgba(169,139,224,.18)";g.beginPath();
+    ro.forEach((d,i)=>{const x=X(d.t),y=Y(Math.min(qMax,d.ro.hi));i?g.lineTo(x,y):g.moveTo(x,y);});
+    for(let i=ro.length-1;i>=0;i--){const d=ro[i];g.lineTo(X(d.t),Y(Math.max(0,d.ro.lo)));}
+    g.closePath();g.fill();
+    g.strokeStyle="#a98be0";g.lineWidth=1.6;g.setLineDash([2,3]);g.beginPath();
+    ro.forEach((d,i)=>{const x=X(d.t),y=Y(d.ro.center);i?g.lineTo(x,y):g.moveTo(x,y);});g.stroke();g.setLineDash([]);}
+
+  // "jetzt" — echte Uhrzeit, nicht auf die Stunde gerundet
+  g.strokeStyle="#e6f0f2";g.setLineDash([4,4]);g.lineWidth=1;g.beginPath();g.moveTo(X(S.trueNow),PAD.t);g.lineTo(X(S.trueNow),cssH-PAD.b);g.stroke();g.setLineDash([]);
+  g.fillStyle="#cfe3e7";g.textAlign="center";g.textBaseline="bottom";g.fillText("jetzt",X(S.trueNow),PAD.t+11);
+
+  line(g,fore,'fore',X,Y,"#f2b452",2,S.trueNow);
+  line(g,meas,'q',X,Y,"#38c7d6",2.4,null);
+}
+function line(g,data,key,X,Y,color,w,splitNow){
+  g.lineWidth=w;g.strokeStyle=color;g.lineJoin="round";let started=false,wasFut=false;g.beginPath();
+  data.forEach(d=>{const v=d[key];if(v==null){if(started){g.stroke();started=false;}return;}
+    const fut=splitNow!=null&&d.t>splitNow;
+    const dash=fut?[5,4]:[];
+    if(!started){g.beginPath();g.moveTo(X(d.t),Y(v));g.setLineDash(dash);started=true;wasFut=fut;}
+    else if(fut!==wasFut){g.lineTo(X(d.t),Y(v));g.stroke();g.beginPath();g.moveTo(X(d.t),Y(v));g.setLineDash(dash);wasFut=fut;}
+    else g.lineTo(X(d.t),Y(v));});
+  if(started)g.stroke();g.setLineDash([]);
+}
+function wireHover(){
+  const cv=document.getElementById("cv"),tip=document.getElementById("tip");if(!cv)return;
+  function nearest(arr,px){let best=null,bd=1e9;arr.forEach(d=>{const dx=Math.abs(GEO.X(d.t)-px);if(dx<bd){bd=dx;best=d;}});return{best,bd};}
+  function move(e){if(!GEO)return;const rect=cv.getBoundingClientRect();const px=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;
+    const{best:bm,bd:bmd}=nearest(GEO.meas,px), {best:bf,bd:bfd}=nearest(GEO.fore,px), {best:br,bd:brd}=nearest(GEO.ro,px);
+    const bd=Math.min(bmd,bfd,brd);
+    if(bd>40){tip.style.opacity=0;return;}
+    const refT=(bmd===bd?bm:bfd===bd?bf:br).t;
+    const dt=new Date(refT);let h=`<b>${dt.toLocaleString('de-DE',{weekday:'short',hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'})}</b>`;
+    if(bm&&bmd<=40)h+=`<br>gemessen: ${bm.q.toFixed(1)} m³/s`;
+    if(bf&&bfd<=40&&bf.fore!=null)h+=`<br>Prognose: ${bf.fore.toFixed(1)} m³/s`;
+    if(br&&brd<=40)h+=`<br><span style="color:#a98be0">Regen-Ausblick: ${br.ro.lo.toFixed(0)}–${br.ro.hi.toFixed(0)} m³/s · ${Math.round(br.ro.chance*100)}%</span>`;
+    const yRef=(bm&&bmd<=40)?bm.q:(bf&&bfd<=40&&bf.fore!=null)?bf.fore:(br&&brd<=40)?br.ro.center:10;
+    tip.innerHTML=h;tip.style.left=GEO.X(refT)+"px";tip.style.top=GEO.Y(yRef)+"px";tip.style.opacity=1;}
+  cv.onmousemove=move;cv.ontouchmove=move;cv.onmouseleave=()=>tip.style.opacity=0;
+}
+window.addEventListener("resize",draw);
+document.getElementById("foot").innerHTML=
+  'Nahprognose: Türkheim(t−4,5h) → Fabrikkanal-Q, gesättigte Transferfunktion (R²=0,886, kalibriert 2025+2026, n=34.913). Regen-Ausblick: 7 Einzugs-Punkte (Open-Meteo), unkalibriert, nur Trend. Historie: periodischer manueller Import, kein Live-Fabrikkanal-Messwert. Daten: <a href="https://github.com/Bedaworo/surfwelle-data">GitHub</a> + Open-Meteo.';
+build();
+</script>
+</body>
+</html>

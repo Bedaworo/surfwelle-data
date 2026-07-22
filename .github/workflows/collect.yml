@@ -49,6 +49,24 @@ jobs:
         run: python fetch_swell.py
         continue-on-error: true
 
+      - name: Write recent slices for the web chart
+        # collected.csv ist inzwischen ueber 17 MB - zu viel, um sie im
+        # Browser bei jedem Seitenaufruf zu laden. Range-Requests scheiden
+        # aus: raw.githubusercontent.com lehnt CORS-Preflights ab, und die
+        # Dateigroesse ist von aussen nicht ermittelbar, weil Content-Length
+        # die gzip-Groesse meldet. Deshalb hier ein fertiger Auszug.
+        # 350 Zeilen a 15 Minuten ~ 87 h, 1100 Zeilen a 5 Minuten ~ 92 h -
+        # beides mehr als der maximale Rueckblick des Charts von 72 h.
+        run: |
+          set -e
+          slice() {
+            [ -f "$1" ] || { echo "$1 fehlt - uebersprungen"; return; }
+            { head -1 "$1"; tail -n +2 "$1" | tail -n "$3"; } > "$2"
+            echo "$2: $(wc -l < "$2") Zeilen"
+          }
+          slice data/collected.csv        data/recent.csv        350
+          slice data/surfwelle_manual.csv data/recent_swell.csv 1100
+
       - name: Commit and push CSV
         run: |
           git config user.name "github-actions[bot]"

@@ -30,12 +30,14 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
 import requests
 
-TIMEOUT = 60
+TIMEOUT = 120  # Jahres-Abfragen (Regen+Temp oder 4 Bodenfeuchte-Tiefen) können bei 60s knapp werden
+MAX_RETRIES = 3
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 
@@ -69,18 +71,25 @@ def fetch_archive(lat, lon, start, end, hourly_vars) -> pd.DataFrame | None:
         "hourly": ",".join(hourly_vars),
         "timezone": "Europe/Berlin",
     }
-    try:
-        r = requests.get(ARCHIVE_URL, params=params, timeout=TIMEOUT)
-        r.raise_for_status()
-        h = r.json().get("hourly", {})
-    except (requests.RequestException, ValueError) as e:
-        print(f"  ! Archive-Fehler ({lat},{lon}): {e}", file=sys.stderr)
-        return None
-    if not h.get("time"):
-        return None
-    df = pd.DataFrame(h)
-    df["time"] = pd.to_datetime(df["time"])  # naive Berlin (timezone=Europe/Berlin)
-    return df.set_index("time")
+    last_err = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            r = requests.get(ARCHIVE_URL, params=params, timeout=TIMEOUT)
+            r.raise_for_status()
+            h = r.json().get("hourly", {})
+            if not h.get("time"):
+                return None
+            df = pd.DataFrame(h)
+            df["time"] = pd.to_datetime(df["time"])  # naive Berlin (timezone=Europe/Berlin)
+            return df.set_index("time")
+        except (requests.RequestException, ValueError) as e:
+            last_err = e
+            if attempt < MAX_RETRIES:
+                print(f"  ! Versuch {attempt}/{MAX_RETRIES} fehlgeschlagen ({lat},{lon}): {e} — erneuter Versuch …",
+                      file=sys.stderr)
+                time.sleep(3 * attempt)  # kurzer Backoff
+    print(f"  ! Archive-Fehler nach {MAX_RETRIES} Versuchen ({lat},{lon}): {last_err}", file=sys.stderr)
+    return None
 
 
 def main() -> int:
@@ -93,8 +102,8 @@ def main() -> int:
     args = ap.parse_args()
 
     csv_path = Path(args.csv)
-    df = pd.read_csv(csv_path)
-    print(f"collected.csv: {len(df)} Zeilen")
+    df = pd.read_csv(csv_path, low_memory=False)
+    print(f"{csv_path.name}: {len(df)} Zeilen")
 
     # Slot je Zeile: Stunde in Berlin-Zeit (Wetter ist stündlich)
     ca = pd.to_datetime(df["collected_at"], errors="coerce", utc=True).dt.tz_convert("Europe/Berlin").dt.tz_localize(None)
@@ -166,7 +175,7 @@ def main() -> int:
         bak = csv_path.with_suffix(".csv.bak2")
         shutil.copy2(csv_path, bak)
         out.to_csv(csv_path, index=False)
-        print(f"\ncollected.csv aktualisiert (Backup: {bak.name})")
+        print(f"\n{csv_path.name} aktualisiert (Backup: {bak.name})")
     else:
         outp = csv_path.parent / "collected_weatherfilled.csv"
         out.to_csv(outp, index=False)

@@ -24,6 +24,18 @@ Sammelt alle 15 Minuten Daten zu:
 - HND Pegel Haslach Werksabfluss (Wertach) — Abfluss + Wasserstand [v1.8]
   Gesteuerter Kraftwerksausleitung-Abfluss direkt unterhalb des Grüntensees.
   Ergänzt den reinen Seepegel um einen echten Q-Wert an derselben Stelle.
+- HND Pegel Wertach, Sebastianskapelle, Thalhofen — Abfluss + Wasserstand [v1.9]
+  Vervollständigt die Fließwellen-Kette entlang der Wertach für
+  detect_flood_waves.py (siehe separates Analyse-Skript im Repo-Root).
+- Robusteres HND-Parsing [v1.10]
+  fetch_hnd() nutzt jetzt lxml direkt statt pandas.read_html für die
+  Wertespalte. Hintergrund: Beim Aufbau der Jahres-Historie (backfill.py) kam
+  ans Licht, dass pandas.read_html Kommazahlen manchmal als US-
+  Tausendertrennzeichen fehlinterpretiert (aus "0,60" wurde 60) — selbst mit
+  decimal=","/thousands=".". Bei der kleinen Live-Tabelle hier ist das in
+  ~10 Wochen Betrieb nie aufgetreten, aber sicherheitshalber jetzt dieselbe
+  robuste Methode wie im Backfill: Zellen als reiner Text, strikte
+  Validierung, lieber ein verworfener Wert als ein stiller Zahlendreher.
 
 Jeder Lauf hängt eine Zeile an data/collected.csv an.
 
@@ -39,14 +51,15 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 import sys
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 import requests
+from lxml import html as lxml_html
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,7 +74,7 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.9 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.10 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
@@ -354,8 +367,19 @@ class Sample:
 
 def fetch_hnd(url: str, label: str) -> Optional[tuple[str, float]]:
     """
-    Holt die HND-Seite und parsed die Tabelle mit pandas.read_html.
-    Gibt (ISO-Timestamp, Wert) der neuesten Zeile zurück.
+    Holt die HND-Seite und liest die neueste Zeile der Tabelle.
+    Gibt (ISO-Timestamp, Wert) zurück.
+
+    NEU v1.10: Nutzt lxml direkt statt pandas.read_html für die Wertespalte.
+    Hintergrund: Beim Aufbau von backfill.py (Jahres-Historie, tausende Zeilen)
+    hat sich gezeigt, dass pandas.read_html Kommazahlen manchmal als
+    US-Tausendertrennzeichen fehlinterpretiert und z.B. aus "0,60" die Zahl 60
+    macht — das passierte auch MIT decimal=","/thousands=".". Bei der kleinen
+    Live-Tabelle hier (kein "days"-Parameter, nur die letzten ~2 Tage) ist das
+    in ~10 Wochen Produktivbetrieb nie beobachtet worden, aber der Mechanismus
+    ist derselbe — hier daher vorsorglich dieselbe robuste Methode wie im
+    Backfill: Zellen als reiner Text, strikte Validierung, lieber ein
+    verworfener Wert als ein stiller Zahlendreher in den Live-Daten.
     """
     try:
         resp = requests.get(
@@ -369,40 +393,45 @@ def fetch_hnd(url: str, label: str) -> Optional[tuple[str, float]]:
         return None
 
     try:
-        tables = pd.read_html(io.StringIO(resp.text), decimal=",", thousands=".")
-    except ValueError:
-        log.warning("HND %s — keine Tabellen im HTML gefunden", label)
+        tree = lxml_html.fromstring(resp.text)
+    except Exception as e:
+        log.warning("HND %s — HTML-Parse-Fehler: %s", label, e)
+        return None
+
+    date_re = re.compile(r"^\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}$")
+    value_re = re.compile(r"^-?\d+(?:,\d+)?$")
+
+    # Tabellen-Auswahl: fast die gesamte erste Spalte muss dem Datumsformat
+    # entsprechen (>=95%), bei mehreren Treffern gewinnt die mit den meisten
+    # Zeilen (siehe backfill.py — dieselbe Logik, damit keine Deko-/
+    # Vergleichstabelle versehentlich gewählt wird).
+    good = []
+    for table_el in tree.xpath("//table"):
+        pairs = []
+        for tr in table_el.xpath(".//tr"):
+            cells = tr.xpath("./td")
+            if len(cells) != 2:
+                continue
+            pairs.append((cells[0].text_content().strip(), cells[1].text_content().strip()))
+        if not pairs:
+            continue
+        match_ratio = sum(1 for t, _ in pairs if date_re.match(t)) / len(pairs)
+        if match_ratio >= 0.95:
+            good.append((len(pairs), pairs))
+
+    if not good:
+        log.warning("HND %s — keine passende Tabelle gefunden", label)
         _log_snippet(resp.text, label)
         return None
-    except Exception as e:
-        log.warning("HND %s — Parse-Fehler: %s", label, e)
+    _, pairs = max(good, key=lambda c: c[0])
+
+    # Erste Zeile = neuester Wert
+    timestamp_str, value_str = pairs[0]
+
+    if not value_re.match(value_str):
+        log.warning("HND %s — Wert nicht plausibel formatiert: %r", label, value_str)
         return None
-
-    # Datentabelle finden: zwei Spalten, erste enthält Datums-Strings
-    df = None
-    for candidate in tables:
-        if candidate.shape[1] != 2:
-            continue
-        first_col = candidate.iloc[:, 0].astype(str)
-        if first_col.str.match(r"\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}").any():
-            df = candidate
-            break
-
-    if df is None or df.empty:
-        log.warning("HND %s — keine passende Tabelle gefunden", label)
-        return None
-
-    timestamp_str = str(df.iloc[0, 0]).strip()
-    raw_value = df.iloc[0, 1]
-
-    try:
-        if isinstance(raw_value, str):
-            value = float(raw_value.replace(",", "."))
-        else:
-            value = float(raw_value)
-    except (ValueError, TypeError):
-        log.warning("HND %s — Wert nicht parsbar: %r", label, raw_value)
-        return None
+    value = float(value_str.replace(",", "."))
 
     try:
         dt = datetime.strptime(timestamp_str, "%d.%m.%Y %H:%M")

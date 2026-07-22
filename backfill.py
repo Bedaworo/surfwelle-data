@@ -126,10 +126,20 @@ def fetch_hnd_history(base_url: str, methode: str, days: int) -> pd.Series | Non
     df = df.copy()
     df.columns = ["t", "v"]
     df["t"] = pd.to_datetime(df["t"].astype(str).str.strip(), format="%d.%m.%Y %H:%M", errors="coerce")
-    df["v"] = pd.to_numeric(
-        df["v"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False),
-        errors="coerce",
-    )
+    # WICHTIG: pd.read_html(..., decimal=",", thousands=".") oben hat die Werte-
+    # Spalte in aller Regel schon korrekt zu float konvertiert (z.B. "6,51" -> 6.51).
+    # Nochmaliges manuelles Parsen (Punkt entfernen, Komma->Punkt) auf einem
+    # bereits-numerischen float würde "6.51" -> "651" korrumpieren, weil der
+    # Dezimalpunkt fälschlich als Tausendertrennzeichen behandelt wird. Der
+    # manuelle Regex-Fallback greift daher NUR, wenn die Spalte noch als Text
+    # vorliegt (z.B. wenn read_html die Auto-Konvertierung nicht anwenden konnte).
+    if pd.api.types.is_numeric_dtype(df["v"]):
+        pass  # bereits korrekt geparst — nichts tun
+    else:
+        df["v"] = pd.to_numeric(
+            df["v"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False),
+            errors="coerce",
+        )
     df = df.dropna(subset=["t", "v"]).drop_duplicates(subset="t", keep="last")
     return df.set_index("t")["v"].sort_index()
 

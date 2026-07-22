@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import re
 import shutil
 import sys
 from datetime import datetime
@@ -37,6 +38,7 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+from lxml import html as lxml_html
 
 TIMEOUT = 30
 USER_AGENT = "surfwelle-augsburg-backfill/1.0 (research project)"
@@ -90,13 +92,68 @@ GAUGES = {
 }
 
 
+def diagnose(gauge: str, days: int) -> int:
+    """Holt die Rohseite eines Pegels und zeigt ALLE Kandidaten-Tabellen im Detail
+    (Form, Datums-Trefferquote, erste/letzte Werte) — ohne irgendetwas zu
+    schreiben. Zum gezielten Debuggen, wenn die normale Auswahl falsche Werte
+    liefert und man sehen muss, was der Server tatsächlich zurückgibt."""
+    if gauge not in GAUGES:
+        print(f"Unbekannter Pegel '{gauge}'. Verfügbar: {', '.join(GAUGES)}", file=sys.stderr)
+        return 1
+    base = GAUGES[gauge]["base"]
+    for methode in ("abfluss", "wasserstand"):
+        if methode not in GAUGES[gauge]:
+            continue
+        url = f"{base}/tabelle?methode={methode}&days={days}&setdiskr=15"
+        print(f"\n{'='*70}\n{gauge} / {methode}\n{url}\n{'='*70}")
+        try:
+            resp = requests.get(url, timeout=TIMEOUT, headers={"User-Agent": USER_AGENT})
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            print(f"  HTTP-Fehler: {e}")
+            continue
+        print(f"  Antwortgröße: {len(resp.text)} Zeichen")
+        try:
+            tree = lxml_html.fromstring(resp.text)
+        except Exception as e:
+            print(f"  HTML-Parse-Fehler: {e}")
+            continue
+        date_re = re.compile(r"^\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}$")
+        value_re = re.compile(r"^-?\d+(?:,\d+)?$")
+        table_els = tree.xpath("//table")
+        print(f"  {len(table_els)} Tabelle(n) insgesamt auf der Seite gefunden.\n")
+        for i, table_el in enumerate(table_els):
+            rows = []
+            for tr in table_el.xpath(".//tr"):
+                cells = tr.xpath("./td")
+                if len(cells) == 2:
+                    rows.append((cells[0].text_content().strip(), cells[1].text_content().strip()))
+            if not rows:
+                print(f"  Tabelle #{i}: keine 2-Spalten-Zeilen")
+                continue
+            mr = sum(1 for t, _ in rows if date_re.match(t)) / len(rows)
+            n_bad_val = sum(1 for _, v in rows if v and not value_re.match(v))
+            print(f"  Tabelle #{i}: {len(rows)} Zeilen  Datums-Trefferquote={mr:.2f}  "
+                  f"unerwartete Wert-Zellen={n_bad_val}")
+            print(f"    erste 3: {rows[:3]}")
+            print(f"    letzte 3: {rows[-3:]}")
+    return 0
+
+
 def fetch_hnd_history(base_url: str, methode: str, days: int) -> pd.Series | None:
     """
     Holt die komplette historische HND-Tabelle (bis zu `days` Tage) und gibt eine
     Zeitreihe (Index = naive Berlin-Zeit, Werte = float) zurück.
 
-    Nutzt exakt denselben Tabellen-Parser wie collect.py (bewährtes Format),
-    liest aber ALLE Zeilen statt nur der neuesten.
+    WICHTIG: Nutzt lxml direkt statt pandas.read_html. Grund: pandas.read_html
+    versucht Zellen automatisch numerisch zu konvertieren und interpretiert
+    dabei ein Komma standardmäßig als US-Tausendertrennzeichen — das passiert
+    auch dann, wenn man decimal=","/thousands="." angibt, wenn die Tabelle groß
+    ist bzw. bestimmte Strukturmerkmale hat (empirisch bestätigt: "0,600" wurde
+    zu 600 statt 0.6). Damit das nie mehr unbemerkt passiert, werden Zellen hier
+    als REINER TEXT ausgelesen und erst danach von uns selbst streng geprüft:
+    nur "Zahl" oder "Zahl,Zahl" wird akzeptiert, alles andere -> NaN statt einer
+    möglicherweise falschen Zahl (lieber eine Lücke als ein stiller Fehler).
     """
     url = f"{base_url}/tabelle?methode={methode}&days={days}&setdiskr=15"
     try:
@@ -107,60 +164,67 @@ def fetch_hnd_history(base_url: str, methode: str, days: int) -> pd.Series | Non
         return None
 
     try:
-        tables = pd.read_html(io.StringIO(resp.text), decimal=",", thousands=".")
-    except ValueError:
-        print(f"  ! keine Tabelle gefunden ({methode})", file=sys.stderr)
+        tree = lxml_html.fromstring(resp.text)
+    except Exception as e:
+        print(f"  ! HTML-Parse-Fehler ({methode}): {e}", file=sys.stderr)
         return None
+
+    date_re = re.compile(r"^\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}$")
+    value_re = re.compile(r"^-?\d+(?:,\d+)?$")
 
     # Tabellen-Auswahl: Die Seite kann mehrere 2-Spalten-Tabellen enthalten
     # (z.B. eine "Durchschnitt 2016->2026"-Vergleichstabelle neben der echten
-    # Zeitreihe). Ein einzelnes ".any()"-Match auf das Datumsmuster reicht nicht
-    # — das kann zufällig auch eine kleine Deko-/Vergleichstabelle treffen und
-    # deren (völlig anders skalierte) Werte einlesen. Deshalb: (a) fast die
-    # GESAMTE erste Spalte muss dem Datumsformat entsprechen (>=95%), und (b)
-    # bei mehreren Kandidaten gewinnt die mit den MEISTEN Zeilen — die echte
-    # Jahres-Zeitreihe hat tausende Einträge, eine Vergleichstabelle nur wenige.
-    date_re = r"\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}"
-    all_candidates = []   # (index, n_rows, match_ratio) — für Diagnose
-    good = []             # (n_rows, dataframe) — erfüllen die 95%-Schwelle
-    for i, cand in enumerate(tables):
-        if cand.shape[1] != 2:
+    # Zeitreihe). Kriterium: fast die GESAMTE erste Spalte muss dem Datumsformat
+    # entsprechen (>=95%), und bei mehreren Treffern gewinnt die mit den MEISTEN
+    # Zeilen — die echte Jahres-Zeitreihe hat tausende Einträge, eine
+    # Vergleichstabelle nur wenige.
+    all_candidates = []  # (index, n_rows, match_ratio) — für Diagnose
+    good = []            # (n_rows, [(t_str, v_str), ...])
+    for i, table_el in enumerate(tree.xpath("//table")):
+        pairs = []
+        for tr in table_el.xpath(".//tr"):
+            cells = tr.xpath("./td")
+            if len(cells) != 2:
+                continue
+            t_txt = cells[0].text_content().strip()
+            v_txt = cells[1].text_content().strip()
+            pairs.append((t_txt, v_txt))
+        if not pairs:
             continue
-        match_ratio = cand.iloc[:, 0].astype(str).str.match(date_re).mean()
-        all_candidates.append((i, len(cand), round(float(match_ratio), 2)))
+        match_ratio = sum(1 for t_txt, _ in pairs if date_re.match(t_txt)) / len(pairs)
+        all_candidates.append((i, len(pairs), round(match_ratio, 2)))
         if match_ratio >= 0.95:
-            good.append((len(cand), cand))
+            good.append((len(pairs), pairs))
 
     if not good:
         print(f"  ! keine passende Tabelle ({methode}) — 2-Spalten-Kandidaten "
               f"(Index, Zeilen, Datums-Trefferquote): {all_candidates}", file=sys.stderr)
         return None
     # Bei mehreren Treffern: die mit den meisten Zeilen nehmen
-    _, df = max(good, key=lambda c: c[0])
+    _, pairs = max(good, key=lambda c: c[0])
 
-    if df is None or df.empty:
-        print(f"  ! keine passende Tabelle ({methode})", file=sys.stderr)
+    times, values, n_rejected = [], [], 0
+    for t_txt, v_txt in pairs:
+        if not date_re.match(t_txt):
+            continue
+        if not value_re.match(v_txt):
+            if v_txt:  # leere Zellen sind normal (Messlücke), keine Warnung nötig
+                n_rejected += 1
+            continue
+        times.append(t_txt)
+        values.append(float(v_txt.replace(",", ".")))
+
+    if n_rejected:
+        print(f"  ! {methode}: {n_rejected} Zelle(n) mit unerwartetem Format verworfen (NaN statt Rateversuch)",
+              file=sys.stderr)
+    if not times:
+        print(f"  ! keine gültigen Werte geparst ({methode})", file=sys.stderr)
         return None
 
-    df = df.copy()
-    df.columns = ["t", "v"]
-    df["t"] = pd.to_datetime(df["t"].astype(str).str.strip(), format="%d.%m.%Y %H:%M", errors="coerce")
-    # WICHTIG: pd.read_html(..., decimal=",", thousands=".") oben hat die Werte-
-    # Spalte in aller Regel schon korrekt zu float konvertiert (z.B. "6,51" -> 6.51).
-    # Nochmaliges manuelles Parsen (Punkt entfernen, Komma->Punkt) auf einem
-    # bereits-numerischen float würde "6.51" -> "651" korrumpieren, weil der
-    # Dezimalpunkt fälschlich als Tausendertrennzeichen behandelt wird. Der
-    # manuelle Regex-Fallback greift daher NUR, wenn die Spalte noch als Text
-    # vorliegt (z.B. wenn read_html die Auto-Konvertierung nicht anwenden konnte).
-    if pd.api.types.is_numeric_dtype(df["v"]):
-        pass  # bereits korrekt geparst — nichts tun
-    else:
-        df["v"] = pd.to_numeric(
-            df["v"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False),
-            errors="coerce",
-        )
-    df = df.dropna(subset=["t", "v"]).drop_duplicates(subset="t", keep="last")
-    return df.set_index("t")["v"].sort_index()
+    idx = pd.to_datetime(times, format="%d.%m.%Y %H:%M", errors="coerce")
+    s = pd.Series(values, index=idx).dropna()
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+    return s
 
 
 def row_slot(row: pd.Series) -> pd.Timestamp | None:
@@ -203,10 +267,14 @@ def main() -> int:
     ap.add_argument("--csv", default=str(CSV_PATH))
     ap.add_argument("--days", type=int, default=365)
     ap.add_argument("--only", default="", help="Kommaliste von Pegeln (sonst alle)")
+    ap.add_argument("--diagnose", default="", help="Nur Rohdaten eines Pegels zeigen, nichts schreiben (z.B. --diagnose wertach)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--inplace", action="store_true", help="collected.csv direkt ersetzen (+ .bak)")
     ap.add_argument("--no-insert", action="store_true", help="nur leere Zellen füllen, keine neuen Zeilen")
     args = ap.parse_args()
+
+    if args.diagnose:
+        return diagnose(args.diagnose.strip().lower(), args.days)
 
     csv_path = Path(args.csv)
     df = pd.read_csv(csv_path)

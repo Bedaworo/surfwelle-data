@@ -8,7 +8,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
 <style>
 :root{
   --ink:#0E2027; --deep:#14303A; --panel:#193C48; --line:#27596A;
@@ -363,6 +362,27 @@ function render(){
      pointRadius:0, tension:.25, yAxisID:'y1', order:4}
   ];
 
+  // Zeitachse bewusst als lineare Achse mit eigener Beschriftung statt
+  // type:'time'. Letzteres braucht einen Datums-Adapter als zusaetzliches
+  // CDN-Skript; faellt der aus, rendert das Chart gar nicht mehr. Die
+  // Formatierung hier kostet ein paar Zeilen und spart die Abhaengigkeit.
+  const HOUR = 3600e3;
+  const spanH = (to - from) / HOUR;
+  const stepH = spanH > 60 ? 12 : spanH > 30 ? 6 : spanH > 14 ? 3 : 2;
+  const step = stepH * HOUR;
+  const tickFmt = new Intl.DateTimeFormat('de-DE',
+    {timeZone:'Europe/Berlin', hour:'2-digit', minute:'2-digit'});
+  const dayFmt = new Intl.DateTimeFormat('de-DE',
+    {timeZone:'Europe/Berlin', weekday:'short', day:'2-digit', month:'2-digit'});
+  const berlinHour = t => +new Intl.DateTimeFormat('en-GB',
+    {timeZone:'Europe/Berlin', hour:'2-digit', hour12:false}).format(t);
+
+  // Ticks auf glatte Stundengrenzen der Ortszeit legen
+  const ticks = [];
+  for (let t = Math.ceil(from/HOUR)*HOUR; t <= to; t += HOUR){
+    if (berlinHour(t) % stepH === 0) ticks.push(t);
+  }
+
   const opts = {
     responsive:true, maintainAspectRatio:false, animation:false,
     interaction:{mode:'nearest', axis:'x', intersect:false},
@@ -373,9 +393,7 @@ function render(){
         titleFont:{family:'IBM Plex Mono',size:11}, bodyFont:{family:'IBM Plex Mono',size:11},
         filter: it => !it.dataset.label.startsWith('Band'),
         callbacks:{
-          title: it => new Date(it[0].parsed.x)
-            .toLocaleString('de-DE',{timeZone:'Europe/Berlin',weekday:'short',
-              day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+          title: it => dayFmt.format(it[0].parsed.x)+' '+tickFmt.format(it[0].parsed.x),
           label: it => {
             const u = it.dataset.yAxisID==='y' ? ' cm' : ' m³/s';
             return ' '+it.dataset.label+': '+it.parsed.y.toFixed(1)+u;
@@ -384,10 +402,12 @@ function render(){
       }
     },
     scales:{
-      x:{type:'time', time:{unit: HOURS>36?'day':'hour', displayFormats:{hour:'HH:mm', day:'dd.MM.'}},
-         adapters:{date:{}},
+      x:{type:'linear', min:from, max:to,
+         afterBuildTicks: a => { a.ticks = ticks.map(v=>({value:v})); },
          grid:{color:'rgba(39,89,106,.35)'},
-         ticks:{color:'#8AA8B1', font:{family:'IBM Plex Mono',size:10}, maxRotation:0, autoSkipPadding:22}},
+         ticks:{color:'#8AA8B1', font:{family:'IBM Plex Mono',size:10},
+                maxRotation:0, autoSkip:false,
+                callback: v => berlinHour(v)===0 ? dayFmt.format(v) : tickFmt.format(v)}},
       y:{position:'left', min:0, suggestedMax:90,
          title:{display:true, text:'Welle (cm)', color:'#8AA8B1', font:{family:'IBM Plex Sans',size:11}},
          grid:{color:'rgba(39,89,106,.35)'},
@@ -504,18 +524,35 @@ function updateStatus(){
 
 /* ---------- Start ---------- */
 async function boot(){
+  let coll, wave;
   try{
-    const [coll, wave] = await Promise.all([loadCollected(), loadWave()]);
+    [coll, wave] = await Promise.all([loadCollected(), loadWave()]);
+  }catch(e){
+    fail('Daten nicht erreichbar.',
+         'Das Repository antwortet nicht: ' + e.message +
+         '. Laeuft der Workflow-Schritt "Write recent slices for the web chart"?');
+    return;
+  }
+  try{
     DATA = {coll, wave, fc: buildForecast(coll)};
     updateStatus();
     render();
   }catch(e){
-    document.getElementById('verdict').textContent = 'Daten nicht erreichbar.';
-    document.getElementById('verdict').className = 'verdict off';
-    document.getElementById('note').textContent =
-      'Das Repository antwortet nicht: ' + e.message + '. Seite neu laden, um es erneut zu versuchen.';
-    document.getElementById('stamp').textContent = '–';
+    // Daten sind da, aber die Darstellung scheitert - das getrennt melden,
+    // sonst sucht man den Fehler an der falschen Stelle.
+    fail('Darstellung fehlgeschlagen.',
+         'Die Daten wurden geladen, das Diagramm laesst sich aber nicht '
+         + 'zeichnen: ' + e.message);
+    console.error(e);
   }
+}
+
+function fail(title, detail){
+  const v = document.getElementById('verdict');
+  v.textContent = title;
+  v.className = 'verdict off';
+  document.getElementById('note').textContent = detail;
+  document.getElementById('stamp').textContent = '–';
 }
 
 document.querySelectorAll('.tools button').forEach(b=>{

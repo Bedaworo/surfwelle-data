@@ -1,0 +1,86 @@
+name: Collect water data
+
+on:
+  schedule:
+    # Explizite Zeitpunkte statt */15 — wird von GitHub Actions zuverlässiger
+    # ausgeführt. */15 wird oft als "alle 15 Min, kann skipped werden" interpretiert.
+    # Mit expliziten Zeiten werden mehr Läufe tatsächlich ausgeführt.
+    # GitHub Actions garantiert grundsätzlich keine pünktlichen Schedule-Jobs;
+    # auf Free Tier können trotzdem Läufe übersprungen werden.
+    - cron: '0 * * * *'
+    - cron: '15 * * * *'
+    - cron: '30 * * * *'
+    - cron: '45 * * * *'
+  workflow_dispatch:  # manueller Trigger über die UI
+
+permissions:
+  contents: write  # damit der Workflow committen darf
+
+# Verhindert, dass sich Läufe überschneiden, wenn einer mal länger braucht
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run collector
+        run: python collect.py
+
+      - name: Fetch swell report (public page, no login)
+        # continue-on-error: falls sich die Seitenstruktur mal ändert und die
+        # Regex-Extraktion fehlschlägt, soll das NICHT die Pegel/Wetter-Daten
+        # blockieren. Der Schritt wird dann rot markiert (sichtbar in Actions),
+        # aber der Rest läuft normal weiter.
+        run: python fetch_swell.py
+        continue-on-error: true
+
+      - name: Write recent slices for the web chart
+        # collected.csv ist inzwischen ueber 17 MB - zu viel, um sie im
+        # Browser bei jedem Seitenaufruf zu laden. Range-Requests scheiden
+        # aus: raw.githubusercontent.com lehnt CORS-Preflights ab, und die
+        # Dateigroesse ist von aussen nicht ermittelbar, weil Content-Length
+        # die gzip-Groesse meldet. Deshalb hier ein fertiger Auszug.
+        # 350 Zeilen a 15 Minuten ~ 87 h, 1100 Zeilen a 5 Minuten ~ 92 h -
+        # beides mehr als der maximale Rueckblick des Charts von 72 h.
+        run: |
+          set -e
+          slice() {
+            [ -f "$1" ] || { echo "$1 fehlt - uebersprungen"; return; }
+            { head -1 "$1"; tail -n +2 "$1" | tail -n "$3"; } > "$2"
+            echo "$2: $(wc -l < "$2") Zeilen"
+          }
+          slice data/collected.csv        data/recent.csv        350
+          slice data/surfwelle_manual.csv data/recent_swell.csv 1100
+
+      - name: Commit and push CSV
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain data/)" ]; then
+            git add data/
+            git commit -m "data: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            # Mehrere parallele Läufe sind unwahrscheinlich, aber sicher ist sicher
+            for i in 1 2 3; do
+              git pull --rebase origin "${GITHUB_REF_NAME}" && git push && break
+              echo "Push attempt $i failed, retrying..."
+              sleep 5
+            done
+          else
+            echo "Keine neuen Daten zu committen."
+          fi
+          

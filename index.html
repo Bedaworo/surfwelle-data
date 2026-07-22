@@ -232,24 +232,28 @@ function parseTime(s){
 }
 
 /* ---------- Laden ---------- */
-async function getRange(file, header){
-  const r = await fetch(REPO+file, {headers:{Range:header}, cache:'no-store'});
-  if (!r.ok && r.status!==206 && r.status!==200) throw new Error(file+': HTTP '+r.status);
+// Bewusst kleine Auszugsdateien statt Range-Requests auf collected.csv:
+// raw.githubusercontent.com beantwortet CORS-Preflights mit 403, und die
+// Dateigroesse laesst sich nicht ermitteln, weil Content-Length die
+// gzip-komprimierte Groesse meldet, Ranges aber auf der unkomprimierten
+// Datei gelten. recent.csv wird vom Workflow bei jedem Lauf mitgeschrieben
+// und ist rund 200 kB statt 17 MB.
+async function getFile(file){
+  const r = await fetch(REPO+file, {cache:'no-store'});
+  if (!r.ok) throw new Error(file+': HTTP '+r.status);
   return r.text();
 }
 
 async function loadCollected(){
-  const [head, tail] = await Promise.all([
-    getRange('collected.csv','bytes=0-4000'),
-    getRange('collected.csv','bytes=-500000')
-  ]);
-  const cols = head.split('\n')[0].trim().split(',');
+  const text = await getFile('recent.csv');
+  const lines = text.split('\n');
+  const cols = lines[0].trim().split(',');
   const ix = n => cols.indexOf(n);
   const iT=ix('collected_at'), iTu=ix('tuerkheim_q_m3s'),
         iSe=ix('sebastianskapelle_q_m3s'), iBi=ix('biessenhofen_q_m3s');
-  const rows = tail.split('\n').slice(1);       // erste Zeile ist angeschnitten
+  if (iT < 0) throw new Error('recent.csv: Spalte collected_at fehlt');
   const out = [];
-  for (const line of rows){
+  for (const line of lines.slice(1)){
     if (!line.trim()) continue;
     const f = line.split(',');
     if (f.length < cols.length - 2) continue;
@@ -262,9 +266,9 @@ async function loadCollected(){
 }
 
 async function loadWave(){
-  const tail = await getRange('surfwelle_manual.csv','bytes=-260000');
+  const text = await getFile('recent_swell.csv');
   const raw = [];
-  for (const line of tail.split('\n').slice(1)){
+  for (const line of text.split('\n').slice(1)){
     const f = line.trim().split(',');
     if (f.length < 2) continue;
     const t = parseTime(f[0]), v = parseFloat(f[1]);

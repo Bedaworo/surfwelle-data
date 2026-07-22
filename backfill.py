@@ -112,13 +112,32 @@ def fetch_hnd_history(base_url: str, methode: str, days: int) -> pd.Series | Non
         print(f"  ! keine Tabelle gefunden ({methode})", file=sys.stderr)
         return None
 
-    df = None
-    for cand in tables:
+    # Tabellen-Auswahl: Die Seite kann mehrere 2-Spalten-Tabellen enthalten
+    # (z.B. eine "Durchschnitt 2016->2026"-Vergleichstabelle neben der echten
+    # Zeitreihe). Ein einzelnes ".any()"-Match auf das Datumsmuster reicht nicht
+    # — das kann zufällig auch eine kleine Deko-/Vergleichstabelle treffen und
+    # deren (völlig anders skalierte) Werte einlesen. Deshalb: (a) fast die
+    # GESAMTE erste Spalte muss dem Datumsformat entsprechen (>=95%), und (b)
+    # bei mehreren Kandidaten gewinnt die mit den MEISTEN Zeilen — die echte
+    # Jahres-Zeitreihe hat tausende Einträge, eine Vergleichstabelle nur wenige.
+    date_re = r"\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}"
+    all_candidates = []   # (index, n_rows, match_ratio) — für Diagnose
+    good = []             # (n_rows, dataframe) — erfüllen die 95%-Schwelle
+    for i, cand in enumerate(tables):
         if cand.shape[1] != 2:
             continue
-        if cand.iloc[:, 0].astype(str).str.match(r"\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}").any():
-            df = cand
-            break
+        match_ratio = cand.iloc[:, 0].astype(str).str.match(date_re).mean()
+        all_candidates.append((i, len(cand), round(float(match_ratio), 2)))
+        if match_ratio >= 0.95:
+            good.append((len(cand), cand))
+
+    if not good:
+        print(f"  ! keine passende Tabelle ({methode}) — 2-Spalten-Kandidaten "
+              f"(Index, Zeilen, Datums-Trefferquote): {all_candidates}", file=sys.stderr)
+        return None
+    # Bei mehreren Treffern: die mit den meisten Zeilen nehmen
+    _, df = max(good, key=lambda c: c[0])
+
     if df is None or df.empty:
         print(f"  ! keine passende Tabelle ({methode})", file=sys.stderr)
         return None

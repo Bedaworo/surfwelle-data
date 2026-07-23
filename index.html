@@ -66,20 +66,20 @@ header{display:flex; justify-content:space-between; align-items:flex-end; gap:16
 .banner.far{border:1px solid var(--far); color:#C4A8D6; background:rgba(158,123,181,.09)}
 .banner+.banner{margin-top:8px}
 
-.tools{display:flex; gap:12px; align-items:center; margin:0 0 8px; flex-wrap:wrap}
-.tools .lbl{font-size:11px; letter-spacing:.08em; text-transform:uppercase;
-  color:var(--mute); min-width:66px}
-.tools+.tools{margin-bottom:12px}
-.seg{display:flex; gap:4px}
-button{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--mute);
-  background:var(--deep); border:1px solid var(--line); border-radius:var(--r);
-  padding:5px 11px; cursor:pointer}
-button:hover{color:var(--foam)}
-#segBack button[aria-pressed="true"]{background:var(--water); border-color:var(--water);
-  color:var(--ink); font-weight:600}
-#segFwd button[aria-pressed="true"]{background:var(--amber); border-color:var(--amber);
-  color:var(--ink); font-weight:600}
-button:focus-visible{outline:2px solid var(--foam); outline-offset:2px}
+.tools{display:flex; gap:18px; align-items:center; margin:0 0 12px; flex-wrap:wrap}
+.tools .lbl{font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--mute)}
+.pick{display:flex; align-items:center; gap:8px; cursor:pointer}
+select{
+  font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:600;
+  color:var(--ink); background:var(--water); border:1px solid var(--water);
+  border-radius:var(--r); padding:5px 26px 5px 10px; cursor:pointer;
+  appearance:none;
+  background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%230E2027'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 9px center; background-size:9px;
+}
+.pick.fwd select{background-color:var(--amber); border-color:var(--amber)}
+select:focus-visible{outline:2px solid var(--foam); outline-offset:2px}
+option{background:var(--deep); color:var(--foam); font-weight:400}
 .chartbox{position:relative; height:380px; background:var(--deep);
   border:1px solid var(--line); border-radius:var(--r); padding:10px}
 @media(max-width:620px){.chartbox{height:310px}}
@@ -138,22 +138,29 @@ p.fine b{color:var(--foam); font-weight:500}
 </div>
 
 <div class="tools">
-  <span class="lbl">Rückblick</span>
-  <span class="seg" id="segBack">
-    <button data-h="12">12 h</button>
-    <button data-h="24" aria-pressed="true">24 h</button>
-    <button data-h="48">48 h</button>
-    <button data-h="72">72 h</button>
-  </span>
-</div>
-<div class="tools">
-  <span class="lbl">Ausblick</span>
-  <span class="seg" id="segFwd">
-    <button data-f="6">6 h</button>
-    <button data-f="12" aria-pressed="true">12 h</button>
-    <button data-f="18">18 h</button>
-    <button data-f="24">24 h</button>
-  </span>
+  <label class="pick">
+    <span class="lbl">Rückblick</span>
+    <select id="segBack" aria-label="Zeitraum Rückblick">
+      <option value="1">1 h</option>
+      <option value="2">2 h</option>
+      <option value="6">6 h</option>
+      <option value="12">12 h</option>
+      <option value="24" selected>24 h</option>
+      <option value="48">48 h</option>
+      <option value="72">72 h</option>
+    </select>
+  </label>
+  <label class="pick fwd">
+    <span class="lbl">Ausblick</span>
+    <select id="segFwd" aria-label="Zeitraum Ausblick">
+      <option value="1">1 h</option>
+      <option value="2">2 h</option>
+      <option value="6">6 h</option>
+      <option value="12" selected>12 h</option>
+      <option value="18">18 h</option>
+      <option value="24">24 h</option>
+    </select>
+  </label>
 </div>
 
 <div class="chartbox"><canvas id="chart"></canvas></div>
@@ -327,6 +334,7 @@ function parseTime(s){
 const fmtTime=new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit'});
 const fmtDay =new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',weekday:'short',day:'2-digit',month:'2-digit'});
 const berlinHour=t=>+new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',hour12:false}).format(t);
+const berlinMin =t=>+new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',minute:'2-digit'}).format(t);
 const stamp=t=>fmtDay.format(t)+' '+fmtTime.format(t);
 
 /* ---------- Laden ---------- */
@@ -389,6 +397,30 @@ async function loadWave(){
 }
 
 /* ---------- Prognose ---------- */
+// Jeder Messwert wird um seine eigene Laufzeit vorwärts abgebildet. Weil die
+// Laufzeit am Abfluss hängt und Türkheim in Stufen meldet, sind die Ankünfte
+// ungleichmäßig verteilt - bei einem Stufensprung entstehen Lücken von über
+// einer Stunde. Deshalb wird die Kurve anschließend auf ein festes Raster
+// interpoliert; sonst reißt die Linie an genau diesen Stellen ab.
+const GRID = 10*60e3;   // 10 Minuten
+
+function resample(pts, keys){
+  if (pts.length<2) return pts;
+  const out=[];
+  const first=Math.ceil(pts[0].t/GRID)*GRID;
+  const last =Math.floor(pts[pts.length-1].t/GRID)*GRID;
+  let i=0;
+  for (let t=first; t<=last; t+=GRID){
+    while (i<pts.length-2 && pts[i+1].t<t) i++;
+    const a=pts[i], b=pts[i+1];
+    const f=(b.t===a.t)?0:(t-a.t)/(b.t-a.t);
+    const o={t};
+    for (const k of keys) o[k]=a[k]+f*(b[k]-a[k]);
+    out.push(o);
+  }
+  return out;
+}
+
 function buildForecast(coll, ref){
   const near=[], far=[];
   for (const r of coll){
@@ -413,19 +445,21 @@ function buildForecast(coll, ref){
   // wird sie nur für die relative Änderung benutzt und am aktuellen
   // Türkheim-Stand verankert. Ohne das springt die Kurve an der Nahtstelle.
   const lastT=[...coll].reverse().find(d=>isFinite(d.tue));
-  let anchor=null, scale=1;
+  let scale=1;
   if (lastT && far.length){
-    anchor=far.reduce((a,b)=>Math.abs(b.t-ref)<Math.abs(a.t-ref)?b:a);
+    const anchor=far.reduce((a,b)=>Math.abs(b.t-ref)<Math.abs(a.t-ref)?b:a);
     if (anchor.raw>0.2) scale=lastT.tue/anchor.raw;
   }
-  const out=far.map(d=>{
+  const farMapped=far.map(d=>{
     const tu=d.raw*scale;
     return {t:d.t, mid:waveOf(fabFromTue(tu)),
             lo :waveOf(fabFromTue(d.lo*scale)),
             hi :waveOf(fabFromTue(d.hi*scale)),
             p  :probFromFab(fabFromTue(tu))};
   });
-  return {near, far:out, scale};
+
+  const keys=['mid','lo','hi','p'];
+  return {near:resample(near,keys), far:resample(farMapped,keys), scale};
 }
 
 /* ---------- Pegellatte ---------- */
@@ -463,7 +497,10 @@ function render(){
                     .map(d=>({x:d.t,y:+fabFromTue(d.tue).toFixed(2)}));
 
   const past=fc.near.filter(d=>vis(d.t)&&d.t< ref).map(d=>({x:d.t,y:+d.mid.toFixed(1)}));
-  const fut =fc.near.filter(d=>vis(d.t)&&d.t>=ref);
+  // Den letzten Punkt vor dem Bezugspunkt mitnehmen, damit die Prognoselinie
+  // direkt am Strich ansetzt und nicht erst beim naechsten Rasterpunkt.
+  const iFirst=fc.near.findIndex(d=>d.t>=ref);
+  const fut =fc.near.filter((d,i)=>vis(d.t)&&(d.t>=ref||i===iFirst-1));
   // Sebastianskapelle erst ab dort, wo Türkheim nicht mehr hinreicht - so hat
   // jeder Abschnitt der Kurve genau eine Quelle und man sieht, wo sie wechselt.
   const nearEnd=fut.length?fut[fut.length-1].t:ref;
@@ -504,12 +541,22 @@ function render(){
   );
 
   // Zeitachse als lineare Achse mit eigener Beschriftung - type:'time' braucht
-  // einen Datums-Adapter als zusaetzliches CDN-Skript.
+  // einen Datums-Adapter als zusaetzliches CDN-Skript. Bei kurzen Fenstern auf
+  // Viertel- bzw. halbe Stunden verfeinern, sonst bleibt die Achse fast leer.
   const spanH=(to-from)/HOUR;
-  const stepH=spanH>60?12:spanH>30?6:spanH>14?3:2;
   const ticks=[];
-  for (let t=Math.ceil(from/HOUR)*HOUR; t<=to; t+=HOUR)
-    if (berlinHour(t)%stepH===0) ticks.push(t);
+  if (spanH<=6){
+    const stepMin = spanH<=3 ? 15 : 30;
+    const STEP=stepMin*60e3;
+    for (let t=Math.ceil(from/STEP)*STEP; t<=to; t+=STEP) ticks.push(t);
+  } else {
+    // Ab einer Stunde an der ORTSZEIT ausrichten, nicht am Epoch - sonst
+    // faellt bei 12-Stunden-Schritten nie ein Tick auf Mitternacht und die
+    // Datumsangabe fehlt.
+    const stepH = spanH<=14 ? 2 : spanH<=30 ? 3 : spanH<=60 ? 6 : 12;
+    for (let t=Math.ceil(from/HOUR)*HOUR; t<=to; t+=HOUR)
+      if (berlinHour(t)%stepH===0) ticks.push(t);
+  }
 
   const opts={
     responsive:true,maintainAspectRatio:false,animation:false,
@@ -533,7 +580,8 @@ function render(){
          grid:{color:'rgba(39,89,106,.35)'},
          ticks:{color:'#8AA8B1',font:{family:'IBM Plex Mono',size:10},
                 maxRotation:0,autoSkip:false,
-                callback:v=>berlinHour(v)===0?fmtDay.format(v):fmtTime.format(v)}},
+                callback:v=>(berlinHour(v)===0 && berlinMin(v)===0)
+                            ? fmtDay.format(v) : fmtTime.format(v)}},
       y:{position:'left',min:0,suggestedMax:90,
          title:{display:true,text:'Welle (cm)',color:'#8AA8B1',font:{family:'IBM Plex Sans',size:11}},
          grid:{color:'rgba(39,89,106,.35)'},
@@ -762,18 +810,12 @@ async function boot(){
   }
 }
 
-document.querySelectorAll('#segBack button').forEach(b=>{
-  b.addEventListener('click',()=>{
-    document.querySelectorAll('#segBack button').forEach(x=>x.removeAttribute('aria-pressed'));
-    b.setAttribute('aria-pressed','true'); HOURS=+b.dataset.h; render();
-  });
+document.getElementById('segBack').addEventListener('change',e=>{
+  HOURS=+e.target.value; render();
 });
-document.querySelectorAll('#segFwd button').forEach(b=>{
-  b.addEventListener('click',()=>{
-    document.querySelectorAll('#segFwd button').forEach(x=>x.removeAttribute('aria-pressed'));
-    b.setAttribute('aria-pressed','true'); FWD=+b.dataset.f;
-    if (DATA){ updateStatus(); render(); }
-  });
+document.getElementById('segFwd').addEventListener('change',e=>{
+  FWD=+e.target.value;
+  if (DATA){ updateStatus(); render(); }
 });
 
 boot();

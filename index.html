@@ -419,7 +419,8 @@ async function loadCollected(){
   const ix=n=>cols.indexOf(n);
   const iT=ix('collected_at'), iTu=ix('tuerkheim_q_m3s'), iSe=ix('sebastianskapelle_q_m3s'),
         iBi=ix('biessenhofen_q_m3s'), iR=ix('forecast_rain_oberjoch_24h_mm'),
-        iG=ix('gruentensee_w_mnn');
+        iG=ix('gruentensee_w_mnn'), iStart=ix('forecast_area_rain_start_date');
+  const iDay=[...Array(8)].map((_,k)=>ix(`forecast_area_rain_d${k}_mm`));
   if (iT<0) throw new Error('recent.csv: Spalte collected_at fehlt');
   const out=[];
   for (const line of lines.slice(1)){
@@ -429,7 +430,10 @@ async function loadCollected(){
     const t=parseTime(f[iT]);
     if (!isFinite(t)) continue;
     const num=i=>(i>=0&&f[i]!==undefined&&f[i]!==''?parseFloat(f[i]):NaN);
-    out.push({t,tue:num(iTu),seba:num(iSe),bies:num(iBi),rain24:num(iR),see:num(iG)});
+    const str=i=>(i>=0&&f[i]!==undefined&&f[i]!==''?f[i]:null);
+    out.push({t, tue:num(iTu), seba:num(iSe), bies:num(iBi), rain24:num(iR), see:num(iG),
+               rainStart: iStart>=0 ? str(iStart) : null,
+               rainDays: iDay.map(i=>num(i))});
   }
   return out.sort((a,b)=>a.t-b.t);
 }
@@ -818,16 +822,10 @@ const dayKey=t=>new Intl.DateTimeFormat('en-CA',
   {timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(t);
 
 /* ---------- 7-Tage-Aussicht ---------- */
-// Gebietsniederschlag als gewichtetes Mittel über vier Punkte im Wertach-EZG.
-// Die Gewichte bilden grob die Flächenanteile ab, mit Schwerpunkt auf Ober-
-// und Mittellauf - Regen unterhalb von Türkheim trägt kaum zur Welle bei
-// (Wellen-Rest reagiert dort nur mit r ≈ 0,1).
-const CATCH = [
-  {lat:47.5159, lon:10.4058, w:0.35},   // Oberjoch, Quellgebiet
-  {lat:47.7333, lon:10.3167, w:0.20},   // Kempten
-  {lat:47.8812, lon:10.6246, w:0.30},   // Kaufbeuren, Mittellauf
-  {lat:47.7800, lon:10.6167, w:0.15}    // Marktoberdorf
-];
+// Der Gebietsniederschlag wird seit collect.py v1.11 dort schon gewichtet
+// (CATCHMENT_DAILY_WEIGHTS: Oberjoch 35%, Bad Wörishofen 30%, Marktoberdorf
+// 20%, Nesselwang 15% - Schwerpunkt auf Ober-/Mittellauf, weil Regen
+// unterhalb von Türkheim kaum zur Welle beiträgt, r≈0,1).
 // Rezession an regenfreien Tagen, gefittet auf 132 Trockentage:
 // Q_morgen = Qb + (Q_heute - Qb) · k. Der Basisabfluss verhindert, dass die
 // Projektion über eine Woche ins Bodenlose fällt - eine reine Prozentabnahme
@@ -842,29 +840,31 @@ const RAIN2Q = [[0,0],[1.6,-0.24],[4.4,0.20],[8.5,0.09],[17.1,1.53],[30.5,2.59]]
 const PROJ_BAND = [[1,-0.47,0.75],[2,-0.61,1.31],[3,-0.57,2.05],[4,-0.58,2.43],
                    [5,-0.41,2.67],[6,-0.46,2.98],[7,-0.54,3.12]];
 
-async function loadOutlook(){
-  const lat=CATCH.map(p=>p.lat).join(','), lon=CATCH.map(p=>p.lon).join(',');
-  const url='https://api.open-meteo.com/v1/forecast'
-    +`?latitude=${lat}&longitude=${lon}&daily=precipitation_sum`
-    +'&timezone=Europe%2FBerlin&forecast_days=8';
-  const r=await fetch(url,{cache:'no-store'});
-  if (!r.ok) throw new Error('Open-Meteo HTTP '+r.status);
-  const raw=await r.json();
-  const arr=Array.isArray(raw)?raw:[raw];       // bei mehreren Punkten ein Array
-  const days=arr[0].daily.time;
-  return days.map((day,i)=>{
-    let mm=0;
-    arr.forEach((loc,k)=>{
-      const v=loc.daily.precipitation_sum[i];
-      if (isFinite(v)) mm+=v*CATCH[k].w;
-    });
-    return {day, mm};
+// Die 7-Tage-Regenprognose steckt seit collect.py v1.11 direkt in recent.csv
+// (forecast_area_rain_d0_mm .. d7_mm, bereits gebietsgewichtet). Kein eigener
+// Open-Meteo-Aufruf mehr im Browser nötig - das war die vorige, fehleranfällige
+// Variante, weil ein CORS-Problem oder eine Downtime bei Open-Meteo sonst
+// nur diese eine Kachel lahmlegte, jetzt fällt sie zusammen mit dem Rest der
+// Seite unter dieselbe, bereits geprüfte Ladefunktion.
+function loadOutlookFromRow(lastRow){
+  if (!lastRow || !lastRow.rainStart || !lastRow.rainDays) return null;
+  // Mittags ansetzen statt Mitternacht: sonst kann toISOString() ueber die
+  // UTC-Tagesgrenze rutschen und ein Datum zu frueh ausgeben (00:00 MESZ ist
+  // 22:00 UTC am Vortag - genau das ist beim ersten Bauen passiert).
+  const start=new Date(lastRow.rainStart+'T12:00:00+02:00');
+  const out=[];
+  lastRow.rainDays.forEach((mm,i)=>{
+    if (!isFinite(mm)) return;
+    const day=new Date(start.getTime()+i*86400000);
+    out.push({day: day.toISOString().slice(0,10), mm});
   });
+  return out.length ? out : null;
 }
 
 function renderOutlook(fc, coll, ref){
-  const bail=msg=>{ document.getElementById('osub').textContent=msg; };
-  if (!OUTLOOK||!OUTLOOK.length) return bail('keine Regendaten erhalten');
+  const bail=msg=>{ document.getElementById('osub').textContent=msg; document.getElementById('odays').innerHTML=''; };
+  if (!OUTLOOK||!OUTLOOK.length)
+    return bail('keine Regenprognose in recent.csv — läuft schon collect.py v1.11?');
   const lastT=[...coll].reverse().find(d=>isFinite(d.tue));
   if (!lastT) return bail('kein aktueller Türkheim-Wert');
 
@@ -1090,21 +1090,12 @@ async function boot(){
     DATA={coll,wave,fc:buildForecast(coll,wave,ref),ref};
     updateStatus();
     render();
-    // Die 7-Tage-Aussicht haengt an einem fremden Dienst - faellt der aus,
-    // bleibt der Rest der Seite davon unberuehrt.
-    loadOutlook()
-      .then(o=>{ OUTLOOK=o; renderOutlook(DATA.fc, DATA.coll, DATA.ref); })
-      .catch(e=>{
-        // Nicht stumm verstecken - sonst sucht man vergeblich nach der Kachel.
-        // Die beiden Karten bleiben stehen, nur mit dem Grund darunter.
-        document.getElementById('osub').textContent='Regenvorhersage nicht erreichbar';
-        document.getElementById('odays').innerHTML='';
-        document.getElementById('overdict').className='overdict';
-        document.getElementById('overdict').textContent=
-          'Die 7-Tage-Aussicht braucht den Wetterdienst Open-Meteo, der gerade nicht '
-          +'antwortet ('+e.message+'). Alles andere auf der Seite ist davon unabhängig.';
-        console.warn('Aussicht nicht verfuegbar:', e);
-      });
+    // Die 7-Tage-Regenprognose steckt seit collect.py v1.11 schon in recent.csv -
+    // kein separater Netzwerkaufruf mehr, kein eigener Fehlerpfad nötig. Fehlt
+    // sie (älterer Datenstand vor dem Update), zeigt renderOutlook das an.
+    const lastRow=[...coll].reverse().find(d=>d.rainStart);
+    OUTLOOK=loadOutlookFromRow(lastRow);
+    renderOutlook(DATA.fc, DATA.coll, DATA.ref);
   }catch(e){
     fail('Darstellung fehlgeschlagen.',
       'Die Daten wurden geladen, das Diagramm lässt sich aber nicht zeichnen: '+e.message);

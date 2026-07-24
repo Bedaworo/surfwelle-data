@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.10 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.11 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
@@ -359,6 +359,22 @@ class Sample:
     thalhofen_w_cm: Optional[float] = None
     thalhofen_w_time: Optional[str] = None
 
+    # NEUE Felder ab v1.11 — Gebietsniederschlag der 7-Tage-Aussicht (Tagessummen).
+    # forecast_area_rain_d0_mm = heute (Rest des Tages laut Open-Meteo), d1..d7
+    # die folgenden sieben Kalendertage. forecast_area_rain_start_date verankert
+    # d0 eindeutig, falls ein Lauf mal ausfaellt oder sich die Zeitzone der
+    # Tagesgrenze anders verhaelt als erwartet. Speist die 7-Tage-Kacheln im
+    # Forecast-Chart; siehe CATCHMENT_DAILY_WEIGHTS oben fuer die Gewichtung.
+    forecast_area_rain_start_date: Optional[str] = None
+    forecast_area_rain_d0_mm: Optional[float] = None
+    forecast_area_rain_d1_mm: Optional[float] = None
+    forecast_area_rain_d2_mm: Optional[float] = None
+    forecast_area_rain_d3_mm: Optional[float] = None
+    forecast_area_rain_d4_mm: Optional[float] = None
+    forecast_area_rain_d5_mm: Optional[float] = None
+    forecast_area_rain_d6_mm: Optional[float] = None
+    forecast_area_rain_d7_mm: Optional[float] = None
+
 
 # -----------------------------------------------------------------------------
 # HND-Scraping mit pandas
@@ -522,6 +538,92 @@ def fetch_openmeteo_forecast(lat: float, lon: float, label: str) -> dict:
     except (requests.RequestException, ValueError) as e:
         log.warning("Open-Meteo Forecast %s fehlgeschlagen: %s", label, e)
         return {}
+
+
+# NEU v1.11: Gewichte für den Gebietsniederschlag der 7-Tage-Aussicht.
+# Grob an den Flächenanteilen orientiert, mit Schwerpunkt auf Ober- und
+# Mittellauf: Regen unterhalb von Türkheim trägt kaum zur Welle bei (der
+# Wellen-Rest, den Türkheim nicht erklärt, korreliert dort nur mit r≈0,1 mit
+# lokalem Regen). Nutzt bewusst nur 4 der 7 CATCHMENT-Punkte - für die
+# Tagessumme über 7 Tage braucht es keine feine Laufzeit-Staffelung wie beim
+# 6h/24h-Ausblick, ein Gebietsmittel reicht.
+CATCHMENT_DAILY_WEIGHTS = {
+    "oberjoch": 0.35,
+    "marktoberdorf": 0.20,   # steht hier stellvertretend für den Mittellauf-Raum
+    "bad_woerishofen": 0.30,
+    "nesselwang": 0.15,
+}
+
+
+def fetch_catchment_daily_forecast() -> Optional[dict]:
+    """
+    Holt die taegliche Niederschlagssumme fuer die naechsten 8 Tage (heute +7)
+    an den CATCHMENT_DAILY_WEIGHTS-Punkten, in EINER Multi-Location-Anfrage.
+
+    Rueckgabe: {"dates": [iso, ...], "area_mm": [mm, ...], "by_point": {name: [mm,...]}}
+    oder None bei komplettem Ausfall.
+
+    Getrennt von fetch_catchment_forecast() (6h/24h, stuendlich), weil Open-Meteo
+    'hourly' und 'daily' im selben Request zwar kombinieren koennte, aber die
+    Fehlerbehandlung sauberer bleibt, wenn ein Ausfall dieser 7-Tage-Anfrage
+    nicht den bestehenden 2-3-Tage-Ausblick mitreisst.
+    """
+    names = list(CATCHMENT_DAILY_WEIGHTS.keys())
+    lats = ",".join(str(CATCHMENT[n][0]) for n in names)
+    lons = ",".join(str(CATCHMENT[n][1]) for n in names)
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lats,
+        "longitude": lons,
+        "daily": "precipitation_sum",
+        "timezone": "Europe/Berlin",
+        "forecast_days": 8,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        log.warning("Open-Meteo 7-Tage-Gebietsniederschlag fehlgeschlagen: %s", e)
+        return None
+
+    locs = data if isinstance(data, list) else [data]
+    by_point: dict[str, list] = {}
+    dates: Optional[list] = None
+    for name, loc in zip(names, locs):
+        daily = loc.get("daily", {})
+        sums = daily.get("precipitation_sum", []) or []
+        t = daily.get("time", []) or []
+        if not sums or not t:
+            log.warning("Open-Meteo 7-Tage-Forecast %s — keine Tageswerte", name)
+            continue
+        by_point[name] = sums
+        if dates is None:
+            dates = t
+
+    if dates is None or not by_point:
+        log.warning("Open-Meteo 7-Tage-Gebietsniederschlag — kein Punkt lieferte Daten")
+        return None
+
+    n_days = len(dates)
+    total_w = sum(CATCHMENT_DAILY_WEIGHTS[n] for n in by_point)
+    area_mm = []
+    for i in range(n_days):
+        s = 0.0
+        for name, sums in by_point.items():
+            v = sums[i] if i < len(sums) else None
+            if v is not None:
+                s += v * CATCHMENT_DAILY_WEIGHTS[name]
+        # Auf die tatsaechlich verfuegbaren Gewichte normieren, falls ein
+        # Punkt an diesem Tag fehlt - sonst wuerde ein Ausfall die Summe
+        # kuenstlich absenken statt sie nur ungenauer zu machen.
+        area_mm.append(round(s / total_w, 2) if total_w > 0 else None)
+
+    log.info(
+        "Open-Meteo 7-Tage-Gebietsniederschlag ✓ %s",
+        ", ".join(f"{d[5:]}={m}" for d, m in zip(dates, area_mm)),
+    )
+    return {"dates": dates, "area_mm": area_mm, "by_point": by_point}
 
 
 def fetch_catchment_forecast() -> dict:
@@ -801,6 +903,15 @@ def collect() -> Sample:
     for name, fc in forecasts.items():
         setattr(sample, f"forecast_rain_{name}_6h_mm", fc.get("next_6h"))
         setattr(sample, f"forecast_rain_{name}_24h_mm", fc.get("next_24h"))
+
+    # NEU v1.11: 7-Tage-Gebietsniederschlag für die "Wann surfbar?"-Kacheln
+    # im Forecast-Chart. Eigener Request, eigene Fehlerbehandlung — ein
+    # Ausfall hier darf den 2-3-Tage-Ausblick oben nicht mit ausbremsen.
+    daily = fetch_catchment_daily_forecast()
+    if daily is not None:
+        sample.forecast_area_rain_start_date = daily["dates"][0]
+        for i, mm in enumerate(daily["area_mm"][:8]):
+            setattr(sample, f"forecast_area_rain_d{i}_mm", mm)
 
     # NEU v1.6: Bodenfeuchte als Zustandsvariable (Schritt 0 der Roadmap, nur Logging).
     soil = fetch_soil_moisture()

@@ -2,8 +2,21 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Surfwelle Augsburg — Kanalprognose</title>
+
+<!-- Homescreen-Icon und Vollbild-Anzeige (iOS + Android) -->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<meta name="theme-color" content="#212529">
+<!-- iOS ignoriert das Manifest fuer "Zum Home-Bildschirm" und braucht diese
+     drei Zeilen separat, um ohne Safari-Chrome (Adressleiste etc.) zu starten. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Surfwelle">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
@@ -21,7 +34,13 @@
 html,body{margin:0;padding:0}
 body{background:var(--ink); color:var(--foam);
   font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:15px; line-height:1.5;
-  padding:20px 16px 48px; max-width:1040px; margin:0 auto}
+  /* env(safe-area-inset-*): im Vollbild (Homescreen-Start) gibt es keine
+     Safari-Leiste mehr, die vor Notch/Kamera-Aussparung schuetzt - das
+     muss die Seite selbst uebernehmen. Im normalen Browser sind die
+     env()-Werte 0, aendert dort also nichts. */
+  padding:calc(20px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+          calc(48px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  max-width:1040px; margin:0 auto}
 h1{font-family:"Bricolage Grotesque",sans-serif; font-weight:700;
   font-size:clamp(22px,4.4vw,34px); letter-spacing:-.02em; margin:0}
 .sub{color:var(--mute); font-size:13px; margin-top:2px}
@@ -634,6 +653,19 @@ function drawStaff(cm){
 /* ---------- Chart ---------- */
 let chart, DATA=null, HOURS=24, FWD=12, OUTLOOK=null;
 
+// Zuletzt gewaehltes Zeitfenster merken, damit es einen Reload uebersteht.
+// localStorage ist hier unbedenklich - das ist eine normale, uebers Netz
+// ausgelieferte Webseite (GitHub Pages), keine in claude.ai eingebettete
+// Artefakt-Vorschau mit deren Speicher-Einschraenkungen.
+const LS_BACK='surfwelle_rueckblick_h', LS_FWD='surfwelle_ausblick_h';
+try{
+  const b=localStorage.getItem(LS_BACK), f=localStorage.getItem(LS_FWD);
+  if (b && document.querySelector(`#segBack option[value="${b}"]`)) HOURS=+b;
+  if (f && document.querySelector(`#segFwd option[value="${f}"]`)) FWD=+f;
+}catch(e){ /* Safari privates Fenster o.ae. blockiert localStorage - dann bleibt es beim Standard */ }
+document.getElementById('segBack').value=HOURS;
+document.getElementById('segFwd').value=FWD;
+
 function render(){
   if (!DATA) return;
   const {coll,wave,fc,ref}=DATA;
@@ -1143,10 +1175,12 @@ async function boot(){
 
 document.getElementById('segBack').addEventListener('change',e=>{
   HOURS=+e.target.value; render();
+  try{ localStorage.setItem(LS_BACK, e.target.value); }catch(err){}
 });
 document.getElementById('segFwd').addEventListener('change',e=>{
   FWD=+e.target.value;
   if (DATA){ updateStatus(); render(); }
+  try{ localStorage.setItem(LS_FWD, e.target.value); }catch(err){}
 });
 
 boot();

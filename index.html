@@ -87,8 +87,46 @@ option{background:var(--deep); color:var(--foam); font-weight:400}
 .key i{display:inline-block; width:16px; height:0; border-top-width:3px;
   border-top-style:solid; vertical-align:middle; margin-right:5px}
 .skill{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--mute);
-  border-top:1px solid rgba(39,89,106,.5); padding-top:9px; margin-bottom:26px}
+  border-top:1px solid rgba(39,89,106,.5); padding-top:9px; margin-bottom:22px}
 .skill b{color:var(--foam); font-weight:600}
+
+/* 7-Tage-Aussicht */
+.outlook{border:1px solid var(--line); border-radius:var(--r); padding:14px 15px 15px;
+  margin-bottom:26px; background:var(--deep)}
+.ohead{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:12px}
+.ohead h2{margin:0}
+.osub{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--mute)}
+.odays{display:grid; grid-template-columns:repeat(7,1fr); gap:5px}
+@media(max-width:560px){.odays{grid-template-columns:repeat(4,1fr)}}
+.obig{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px}
+@media(max-width:480px){.obig{grid-template-columns:1fr}}
+.ocard{background:var(--ink); border:1px solid var(--line); border-radius:var(--r);
+  padding:11px 13px 12px}
+.ocard.on{border-color:var(--amber); background:rgba(240,180,41,.07)}
+.ocard .ok{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--mute)}
+.ocard .ov{font-family:"Bricolage Grotesque",sans-serif; font-weight:700;
+  font-size:clamp(17px,3vw,22px); letter-spacing:-.01em; margin:3px 0 2px; line-height:1.15}
+.ocard.on .ov{color:var(--amber)}
+.ocard .od{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--mute)}
+.oday{background:var(--ink); border:1px solid transparent; border-radius:var(--r);
+  padding:8px 4px 9px; text-align:center}
+.oday.hit{border-color:var(--amber); background:rgba(240,180,41,.08)}
+.oday .dn{font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--mute)}
+.oday .mm{font-family:"IBM Plex Mono",monospace; font-size:14px; font-weight:600; margin:3px 0 5px}
+.oday .mm small{font-size:9px; font-weight:400; color:var(--mute)}
+.obar{height:44px; display:flex; align-items:flex-end; justify-content:center; gap:2px}
+.obar i{display:block; width:9px; border-radius:1px 1px 0 0; background:var(--water)}
+.obar i.hi{background:rgba(86,176,196,.35)}
+.oday.hit .obar i{background:var(--amber)}
+.oday.hit .obar i.hi{background:rgba(240,180,41,.35)}
+.oday .cm{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--mute); margin-top:5px}
+.oday.hit .cm{color:var(--amber)}
+.oday .pp{font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:600;
+  color:var(--foam); margin-top:3px}
+.oday.hit .pp{color:var(--amber)}
+.overdict{font-size:13.5px; color:var(--mute); margin-top:12px; max-width:70ch}
+.overdict b{color:var(--foam); font-weight:500}
+.overdict.on b{color:var(--amber)}
 
 h2{font-family:"Bricolage Grotesque",sans-serif; font-weight:500; font-size:15px;
   margin:0 0 10px; color:var(--foam)}
@@ -173,6 +211,27 @@ p.fine b{color:var(--foam); font-weight:500}
   <span><i style="border-color:#4A6C77"></i>Türkheim</span>
 </div>
 <div class="skill" id="skill"></div>
+
+<div class="outlook" id="outlook">
+  <div class="ohead">
+    <h2>Aussicht 7 Tage</h2>
+    <span class="osub" id="osub">wird geladen …</span>
+  </div>
+  <div class="obig" id="obig">
+    <div class="ocard" id="oEarly">
+      <div class="ok">Frühestens möglich</div>
+      <div class="ov">–</div>
+      <div class="od">–</div>
+    </div>
+    <div class="ocard" id="oLikely">
+      <div class="ok">Wahrscheinlichster Tag</div>
+      <div class="ov">–</div>
+      <div class="od">–</div>
+    </div>
+  </div>
+  <div class="odays" id="odays"></div>
+  <div class="overdict" id="overdict"></div>
+</div>
 
 <div class="explain">
   <h2>Wie die Prognose entsteht</h2>
@@ -537,7 +596,7 @@ function drawStaff(cm){
 }
 
 /* ---------- Chart ---------- */
-let chart, DATA=null, HOURS=24, FWD=12;
+let chart, DATA=null, HOURS=24, FWD=12, OUTLOOK=null;
 
 function render(){
   if (!DATA) return;
@@ -741,7 +800,174 @@ function showSkill(from){
   el.innerHTML=txt;
 }
 
-/* ---------- Status ---------- */
+// Wahrscheinlichkeit, dass das Tagesmaximum die Surfschwelle erreicht,
+// direkt empirisch aus 2506 rückgerechneten Tagen: projizierter Türkheim-Wert
+// -> Anteil der Tage, an denen das Maximum tatsächlich 7,9 m³/s erreichte.
+// Der Umweg über die Residuenverteilung war irreführend - deren linker Rand
+// stammt aus Wochen mit viel höherem Abfluss und ergab selbst bei völliger
+// Trockenheit noch 19 %. Der Horizont spielt kaum eine Rolle (Tag 1-2 gegen
+// Tag 5-7 unterscheidet sich um wenige Prozentpunkte), deshalb eine Tabelle.
+const PROJ_P = [[3.0,0.00],[4.22,0.15],[5.01,0.19],[6.02,0.46],
+                [7.16,0.76],[8.59,0.92],[10.62,0.99],[18.05,1.00]];
+const Q_SURF = 7.9;          // Türkheim für Kanal 11,4 = 60 cm
+const SURF_VON = 8, SURF_BIS = 20;   // die Welle darf nur tagsüber gesurft werden
+
+const projProb = mid => mid<=3.0 ? 0 : interp(PROJ_P, mid, 1);
+
+const dayKey=t=>new Intl.DateTimeFormat('en-CA',
+  {timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(t);
+
+/* ---------- 7-Tage-Aussicht ---------- */
+// Gebietsniederschlag als gewichtetes Mittel über vier Punkte im Wertach-EZG.
+// Die Gewichte bilden grob die Flächenanteile ab, mit Schwerpunkt auf Ober-
+// und Mittellauf - Regen unterhalb von Türkheim trägt kaum zur Welle bei
+// (Wellen-Rest reagiert dort nur mit r ≈ 0,1).
+const CATCH = [
+  {lat:47.5159, lon:10.4058, w:0.35},   // Oberjoch, Quellgebiet
+  {lat:47.7333, lon:10.3167, w:0.20},   // Kempten
+  {lat:47.8812, lon:10.6246, w:0.30},   // Kaufbeuren, Mittellauf
+  {lat:47.7800, lon:10.6167, w:0.15}    // Marktoberdorf
+];
+// Rezession an regenfreien Tagen, gefittet auf 132 Trockentage:
+// Q_morgen = Qb + (Q_heute - Qb) · k. Der Basisabfluss verhindert, dass die
+// Projektion über eine Woche ins Bodenlose fällt - eine reine Prozentabnahme
+// unterschätzte den Wert nach sieben Tagen im Mittel um 3,5 m³/s.
+const REC_QB = 3.4, REC_K = 0.862;
+// Zwei-Tages-Gebietsniederschlag -> Zuwachs bei Türkheim [mm, m³/s].
+// Unter etwa 12 mm passiert netto nichts.
+const RAIN2Q = [[0,0],[1.6,-0.24],[4.4,0.20],[8.5,0.09],[17.1,1.53],[30.5,2.59]];
+// Unsicherheit je Horizont [Tag, unten, oben] - das mittlere Halbe der
+// Residuen aus 357 rückgerechneten Projektionen. Das Band ist bewusst
+// asymmetrisch: die Projektion unterschätzt häufiger, als sie überschätzt.
+const PROJ_BAND = [[1,-0.47,0.75],[2,-0.61,1.31],[3,-0.57,2.05],[4,-0.58,2.43],
+                   [5,-0.41,2.67],[6,-0.46,2.98],[7,-0.54,3.12]];
+
+async function loadOutlook(){
+  const lat=CATCH.map(p=>p.lat).join(','), lon=CATCH.map(p=>p.lon).join(',');
+  const url='https://api.open-meteo.com/v1/forecast'
+    +`?latitude=${lat}&longitude=${lon}&daily=precipitation_sum`
+    +'&timezone=Europe%2FBerlin&forecast_days=8';
+  const r=await fetch(url,{cache:'no-store'});
+  if (!r.ok) throw new Error('Open-Meteo HTTP '+r.status);
+  const raw=await r.json();
+  const arr=Array.isArray(raw)?raw:[raw];       // bei mehreren Punkten ein Array
+  const days=arr[0].daily.time;
+  return days.map((day,i)=>{
+    let mm=0;
+    arr.forEach((loc,k)=>{
+      const v=loc.daily.precipitation_sum[i];
+      if (isFinite(v)) mm+=v*CATCH[k].w;
+    });
+    return {day, mm};
+  });
+}
+
+function renderOutlook(fc, coll, ref){
+  const bail=msg=>{ document.getElementById('osub').textContent=msg; };
+  if (!OUTLOOK||!OUTLOOK.length) return bail('keine Regendaten erhalten');
+  const lastT=[...coll].reverse().find(d=>isFinite(d.tue));
+  if (!lastT) return bail('kein aktueller Türkheim-Wert');
+
+  // Mittlerer Pfad, dazu das empirische Unsicherheitsband je Horizont.
+  const mid=[]; let q=lastT.tue;
+  OUTLOOK.forEach((d,i)=>{
+    const p2=d.mm+(i>0?OUTLOOK[i-1].mm:0);
+    // Die Rezession darf den Abfluss nie anheben: bei Werten unterhalb des
+    // Basisabflusses würde die Formel sonst nach oben ziehen.
+    const rec=Math.min(q, REC_QB+(q-REC_QB)*REC_K);
+    q=Math.max(1.2, rec+interp(RAIN2Q,p2,1));
+    mid.push(q);
+  });
+  const waveOfQ=q=>Math.max(0, waveFromFab(fabFromTue(q))+fc.bias);
+
+  // --- Wahrscheinlichkeit je Tag ---------------------------------------
+  // Für heute und morgen liefert die Stundenprognose aus Türkheim und
+  // Sebastianskapelle den genaueren Wert - sie kennt den Zeitpunkt. Ab
+  // übermorgen bleibt nur die Tagesprojektion aus dem Regen.
+  const today=dayKey(ref);
+  const days=OUTLOOK.slice(0,7).map((d,i)=>({key:d.day, mm:d.mm, q:mid[i], i}));
+  // Falls Open-Meteo den heutigen Tag nicht als ersten liefert, ausrichten
+  while (days.length && days[0].key<today) days.shift();
+
+  const info=days.map((d,i)=>{
+    let p=projProb(d.q), src='Regenprognose', when=null;
+    // Stundenprognose: nur Punkte im Surffenster, die noch bevorstehen
+    const pts=fc.near.concat(fc.far).filter(x=>{
+      if (x.t<ref || dayKey(x.t)!==d.key) return false;
+      const h=berlinHour(x.t);
+      return h>=SURF_VON && h<SURF_BIS;
+    });
+    if (pts.length){
+      const best=pts.reduce((a,b)=>b.p>a.p?b:a);
+      if (best.p>p){ p=best.p; src='Pegelstand'; when=best.t; }
+      else if (best.p>0.02) when=best.t;
+    }
+    // Ein Tag ohne verbleibendes Surffenster fällt raus
+    const past = d.key===today && berlinHour(ref)>=SURF_BIS;
+    return {...d, p:past?0:p, src, when, past};
+  });
+
+  const early=info.find(x=>x.p>=0.25);
+  // Bei praktisch gleicher Wahrscheinlichkeit den früheren Tag nehmen - ein
+  // Tag mit 97 % übermorgen ist brauchbarer als einer mit 99 % in fünf Tagen.
+  const pmaxAll=Math.max(...info.map(x=>x.p));
+  const likely=info.find(x=>x.p>=pmaxAll-0.03);
+
+  const fmtLong=new Intl.DateTimeFormat('de-DE',
+    {weekday:'long',day:'2-digit',month:'2-digit',timeZone:'Europe/Berlin'});
+  const label=d=>d.key===today?'heute':fmtLong.format(new Date(d.key+'T12:00:00'));
+  const card=(id,d,leer)=>{
+    const el=document.getElementById(id);
+    const v=el.querySelector('.ov'), s=el.querySelector('.od');
+    if (!d||d.p<0.1){ el.classList.remove('on'); v.textContent='—'; s.textContent=leer; return; }
+    el.classList.add('on');
+    v.textContent=label(d).replace(/^(\w)/,c=>c.toUpperCase());
+    let t=`${Math.round(d.p*100)} % · bis ${waveOfQ(d.q+2).toFixed(0)} cm`;
+    if (d.when) t+=` · ab etwa ${fmtTime.format(d.when)}`;
+    else if (d.i>1) t+=` · Zeitpunkt offen`;
+    s.textContent=t;
+  };
+  card('oEarly', early, 'nichts in Sicht');
+  card('oLikely', likely && likely.p>=0.1 ? likely : null, 'kein Tag über 10 %');
+
+  const fmtD=new Intl.DateTimeFormat('de-DE',{weekday:'short',timeZone:'Europe/Berlin'});
+  const maxMM=Math.max(4,...days.map(d=>d.mm));
+  let html='';
+  info.forEach((d,i)=>{
+    const lo=Math.max(1.2, d.q+interp(PROJ_BAND,Math.max(i,1),1));
+    const hi=d.q+interp(PROJ_BAND,Math.max(i,1),2);
+    const hit=d.p>=0.25;
+    const h=Math.round(Math.min(1,d.mm/maxMM)*40);
+    const lbl=d.key===today?'heute':fmtD.format(new Date(d.key+'T12:00:00'));
+    html+=`<div class="oday${hit?' hit':''}">
+      <div class="dn">${lbl}</div>
+      <div class="mm">${d.mm.toFixed(0)}<small>mm</small></div>
+      <div class="obar"><i style="height:${Math.max(h,2)}px"></i></div>
+      <div class="cm">${waveOfQ(lo).toFixed(0)}–${waveOfQ(hi).toFixed(0)} cm</div>
+      <div class="pp">${d.past?'—':Math.round(d.p*100)+' %'}</div>
+    </div>`;
+  });
+  document.getElementById('odays').innerHTML=html;
+  const sum=days.reduce((a,d)=>a+d.mm,0);
+  document.getElementById('osub').textContent=
+    `${sum.toFixed(0)} mm Gebietsniederschlag erwartet · Start bei ${lastT.tue.toFixed(2)} m³/s`;
+
+  const v=document.getElementById('overdict');
+  if (early){
+    v.className='overdict on';
+    v.innerHTML=`Die Prozentwerte sind die Wahrscheinlichkeit, dass das Tagesmaximum für
+      60 cm reicht — gerechnet aus 357 rückgerechneten Wochen und dort brauchbar kalibriert
+(2506 Tage). Berücksichtigt ist nur die Zeit von
+      ${SURF_VON} bis ${SURF_BIS} Uhr.`;
+  } else {
+    v.className='overdict';
+    v.innerHTML=`In den nächsten sieben Tagen reicht es <b>voraussichtlich nicht</b>. Für
+      60 cm bräuchte Türkheim rund ${Q_SURF} m³/s; die Projektion führt auf
+      ${mid[Math.min(6,mid.length-1)].toFixed(1)} m³/s. Nötig wären mehrere
+      aufeinanderfolgende Tage mit über 20 mm Gebietsniederschlag — unter etwa 12 mm in
+      zwei Tagen gleicht der Regen nicht einmal den natürlichen Rückgang aus.`;
+  }
+}
 function updateStatus(){
   const {coll,wave,fc,ref}=DATA;
   const lastW=wave.length?wave[wave.length-1]:null;
@@ -864,6 +1090,21 @@ async function boot(){
     DATA={coll,wave,fc:buildForecast(coll,wave,ref),ref};
     updateStatus();
     render();
+    // Die 7-Tage-Aussicht haengt an einem fremden Dienst - faellt der aus,
+    // bleibt der Rest der Seite davon unberuehrt.
+    loadOutlook()
+      .then(o=>{ OUTLOOK=o; renderOutlook(DATA.fc, DATA.coll, DATA.ref); })
+      .catch(e=>{
+        // Nicht stumm verstecken - sonst sucht man vergeblich nach der Kachel.
+        // Die beiden Karten bleiben stehen, nur mit dem Grund darunter.
+        document.getElementById('osub').textContent='Regenvorhersage nicht erreichbar';
+        document.getElementById('odays').innerHTML='';
+        document.getElementById('overdict').className='overdict';
+        document.getElementById('overdict').textContent=
+          'Die 7-Tage-Aussicht braucht den Wetterdienst Open-Meteo, der gerade nicht '
+          +'antwortet ('+e.message+'). Alles andere auf der Seite ist davon unabhängig.';
+        console.warn('Aussicht nicht verfuegbar:', e);
+      });
   }catch(e){
     fail('Darstellung fehlgeschlagen.',
       'Die Daten wurden geladen, das Diagramm lässt sich aber nicht zeichnen: '+e.message);

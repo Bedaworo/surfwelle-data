@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.11 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.12 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
@@ -151,6 +151,12 @@ HND_THALHOFEN_Q_URL = (
 HND_THALHOFEN_W_URL = (
     "https://www.hnd.bayern.de/pegel/iller_lech/thalhofen-12404705/tabelle"
     "?methode=wasserstand&setdiskr=15"
+)
+# NEU v1.12: Grundwasser Bobingen — Quartaer-Grundwasserleiter, liegt direkt
+# im Katchment (siehe CATCHMENT-Punkt "bobingen"). Reine Beobachtungsgroesse,
+# noch nicht im Prognosemodell verwendet - siehe Sample-Dataclass oben.
+HND_GRUNDWASSER_BOBINGEN_URL = (
+    "https://www.hnd.bayern.de/grundwasser/iller_lech/bobingen-no-578-8177/tabelle"
 )
 # NEU v1.3: Singold (Pegel Langerringen) — laut Wikipedia mündet die Singold
 # über den ausgeleiteten Kanal "Senkelbach" in Göggingen in die Wertach.
@@ -375,6 +381,19 @@ class Sample:
     forecast_area_rain_d6_mm: Optional[float] = None
     forecast_area_rain_d7_mm: Optional[float] = None
 
+    # NEU v1.12 — Grundwasser Bobingen (HND-Messstelle 8177, Quartär-
+    # Grundwasserleiter, direkt in unserem Katchment). Aendert sich pro
+    # Stunde praktisch nicht (Grundwasser reagiert auf Wochen- bis
+    # Monatsskala) - wird bewusst nur geloggt, noch nicht im Prognosemodell
+    # verwendet. Moeglicher spaeterer Nutzen: Diagnose, ob der feste
+    # Rezessions-Basisabfluss (REC_QB im Chart) in einer langen Trockenphase
+    # tatsaechlich konstant bleibt oder mit sinkendem Grundwasserspiegel
+    # selbst absinkt. Beide Werte der HND-Tabelle: absoluter Stand
+    # (m ü. NN) und Flurabstand (m unter Gelaende, = Tiefe ab Oberflaeche).
+    grundwasser_bobingen_ue_nn_m: Optional[float] = None
+    grundwasser_bobingen_flurabstand_m: Optional[float] = None
+    grundwasser_bobingen_time: Optional[str] = None
+
 
 # -----------------------------------------------------------------------------
 # HND-Scraping mit pandas
@@ -457,6 +476,79 @@ def fetch_hnd(url: str, label: str) -> Optional[tuple[str, float]]:
 
     log.info("HND %s ✓ %s = %s", label, dt.isoformat(), value)
     return dt.isoformat(), value
+
+
+def fetch_hnd_groundwater(url: str, label: str) -> Optional[tuple[str, float, float]]:
+    """
+    Wie fetch_hnd(), aber fuer Grundwasser-Messstellen: deren Tabelle hat DREI
+    Spalten (Datum, Grundwasserstand m ue. NN, Grundwasserstand m u. Gelaende)
+    statt der zwei Spalten bei Pegel-/Regentabellen. Eigene Funktion statt
+    Erweiterung von fetch_hnd(), damit dessen strikte "genau 2 Spalten"-Pruefung
+    fuer die bestehenden Stationen unangetastet bleibt.
+
+    Gibt (ISO-Timestamp, m_ue_NN, m_u_Gelaende) zurueck.
+    """
+    try:
+        resp = requests.get(
+            url,
+            timeout=TIMEOUT,
+            headers={"User-Agent": USER_AGENT},
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        log.warning("HND %s — HTTP-Fehler: %s", label, e)
+        return None
+
+    try:
+        tree = lxml_html.fromstring(resp.text)
+    except Exception as e:
+        log.warning("HND %s — HTML-Parse-Fehler: %s", label, e)
+        return None
+
+    date_re = re.compile(r"^\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}$")
+    value_re = re.compile(r"^-?\d+(?:,\d+)?$")
+
+    good = []
+    for table_el in tree.xpath("//table"):
+        rows = []
+        for tr in table_el.xpath(".//tr"):
+            cells = tr.xpath("./td")
+            if len(cells) != 3:
+                continue
+            rows.append(tuple(c.text_content().strip() for c in cells))
+        if not rows:
+            continue
+        match_ratio = sum(1 for t, _, _ in rows if date_re.match(t)) / len(rows)
+        if match_ratio >= 0.95:
+            good.append((len(rows), rows))
+
+    if not good:
+        log.warning("HND %s — keine passende Tabelle gefunden", label)
+        _log_snippet(resp.text, label)
+        return None
+    _, rows = max(good, key=lambda c: c[0])
+
+    timestamp_str, ue_nn_str, flurabstand_str = rows[0]
+
+    # Flurabstand fehlt bei manchen Messstellen (Spalte bleibt leer) - dann
+    # trotzdem den Hauptwert (m ue. NN) verwerten.
+    if not value_re.match(ue_nn_str):
+        log.warning("HND %s — Wert nicht plausibel formatiert: %r", label, ue_nn_str)
+        return None
+    ue_nn = float(ue_nn_str.replace(",", "."))
+    flurabstand = (
+        float(flurabstand_str.replace(",", "."))
+        if value_re.match(flurabstand_str) else None
+    )
+
+    try:
+        dt = datetime.strptime(timestamp_str, "%d.%m.%Y %H:%M")
+    except ValueError:
+        log.warning("HND %s — Zeitstempel nicht parsbar: %r", label, timestamp_str)
+        return None
+
+    log.info("HND %s ✓ %s = %s m ü.NN (Flurabstand %s)", label, dt.isoformat(), ue_nn, flurabstand)
+    return dt.isoformat(), ue_nn, flurabstand
 
 
 def _log_snippet(html: str, label: str) -> None:
@@ -854,6 +946,11 @@ def collect() -> Sample:
         sample.thalhofen_q_time, sample.thalhofen_q_m3s = r
     if r := fetch_hnd(HND_THALHOFEN_W_URL, "Thalhofen W"):
         sample.thalhofen_w_time, sample.thalhofen_w_cm = r
+
+    # NEU v1.12: Grundwasser Bobingen (Beobachtungsgroesse, siehe Dataclass)
+    if r := fetch_hnd_groundwater(HND_GRUNDWASSER_BOBINGEN_URL, "Grundwasser Bobingen"):
+        sample.grundwasser_bobingen_time, sample.grundwasser_bobingen_ue_nn_m, \
+            sample.grundwasser_bobingen_flurabstand_m = r
 
     # NEU v1.3: Singold (Pegel Langerringen) — wichtiger Direkt-Zubringer
     # zum Senkelbach via "Singold-Senkelbach"-Überleitung

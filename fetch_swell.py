@@ -48,6 +48,7 @@ USER_AGENT = "surfwelle-augsburg-data-collector/1.5 (research project)"
 
 SURFWELLE_CSV = Path(__file__).parent / "data" / "surfwelle_manual.csv"
 TEMPERATURE_CSV = Path(__file__).parent / "data" / "temperature_manual.csv"
+LAST_SLOT_JSON = Path(__file__).parent / "data" / "last_surf_slot.json"
 
 
 def fetch_swell_page() -> Optional[str]:
@@ -288,8 +289,14 @@ def process_series(
     label_for_log: str,
     despike: bool = False,
     despike_window_days: Optional[int] = 14,
-) -> None:
-    """Parsed eine Serie, merged sie mit der bestehenden CSV, schreibt sie."""
+) -> dict[str, float]:
+    """
+    Parsed eine Serie, merged sie mit der bestehenden CSV, schreibt sie.
+    Gibt das finale (nach Despike bereinigte) {time: value}-Dict zurueck,
+    damit main() z.B. den letzten surfbaren Slot daraus berechnen kann,
+    ohne die gerade geschriebene CSV noch einmal von der Platte lesen zu
+    muessen.
+    """
     new_data = {}
     for label, value in zip(labels, values):
         try:
@@ -337,6 +344,66 @@ def process_series(
             log.info("%s: %d Ausreisser entfernt", label_for_log, len(spikes))
 
     write_merged_csv(csv_path, merged, value_col)
+    return merged
+
+
+def find_last_surf_slot(
+    merged: dict[str, float],
+    surf_cm: float = 57,
+    surf_von: int = 8,
+    surf_bis: int = 20,
+    min_minutes: float = 30,
+    max_gap_minutes: float = 15,
+) -> Optional[dict]:
+    """
+    Serverseitiges Gegenstueck zu findLastSurfSlot() in index.html - dieselben
+    Schwellenwerte (57 cm, 8-20 Uhr, mindestens 30 Minuten am Stueck, Luecken
+    ueber 15 Minuten trennen). Wird bei jedem Lauf ueber die GESAMTE Historie
+    berechnet, das Ergebnis (drei Werte) landet in data/last_surf_slot.json.
+
+    Grund: surfwelle_manual.csv waechst dauerhaft (aktuell ~7,6 kB/Tag, macht
+    rund 2,8 MB im Jahr) - im Browser bei jedem Seitenaufruf komplett neu zu
+    laden und zu durchsuchen waere auf Jahre nicht mehr sinnvoll. Ein Python-
+    Lauf ueber ein paar zehntausend Zeilen kostet dagegen Millisekunden, egal
+    wie gross die Datei wird - das Ergebnis ist danach nur noch ein paar
+    Bytes JSON.
+
+    canonical_key() speichert Zeitstempel bereits als Ortszeit mit explizitem
+    Offset; datetime.fromisoformat() liefert daher direkt die Lokalzeit-
+    Stunde in .hour, ohne weitere Zeitzonen-Umrechnung.
+    """
+    points = []
+    for k, v in merged.items():
+        try:
+            dt = datetime.fromisoformat(k)
+        except ValueError:
+            continue
+        points.append((dt, v))
+    points.sort(key=lambda p: p[0])
+
+    eligible = [(dt, v) for dt, v in points if v >= surf_cm and surf_von <= dt.hour < surf_bis]
+    if not eligible:
+        return None
+
+    runs = []
+    start_dt, _ = eligible[0]
+    prev_dt, prev_v = eligible[0]
+    peak = eligible[0][1]
+    for dt, v in eligible[1:]:
+        gap_min = (dt - prev_dt).total_seconds() / 60
+        if gap_min > max_gap_minutes:
+            runs.append((start_dt, prev_dt, peak))
+            start_dt, peak = dt, v
+        else:
+            peak = max(peak, v)
+        prev_dt, prev_v = dt, v
+    runs.append((start_dt, prev_dt, peak))
+
+    long_runs = [r for r in runs if (r[1] - r[0]).total_seconds() >= min_minutes * 60]
+    if not long_runs:
+        return None
+    start, end, peak = max(long_runs, key=lambda r: r[1])
+    return {"start": start.isoformat(), "end": end.isoformat(), "peak_cm": peak}
 
 
 def main() -> int:
@@ -373,11 +440,29 @@ def main() -> int:
     if window is None:
         log.info("Aufraeum-Modus: Ausreisser werden in der GESAMTEN Historie geprueft")
 
-    process_series(
+    surf_merged = process_series(
         labels, swell_values, reference_time,
         SURFWELLE_CSV, "percent", "Swell",
         despike=True, despike_window_days=window,
     )
+
+    # Serverseitig vorberechnen, wann die Welle zuletzt surfbar war - siehe
+    # find_last_surf_slot() fuer die Begruendung. Absichtlich fehlertolerant:
+    # ein Problem hier soll den Rest des Laufs (Swell-Daten selbst) nicht
+    # gefaehrden, die Datei bleibt dann einfach beim alten Stand.
+    try:
+        slot = find_last_surf_slot(surf_merged)
+        with open(LAST_SLOT_JSON, "w", encoding="utf-8") as f:
+            json.dump(slot, f)
+        if slot:
+            log.info(
+                "Letzter surfbarer Slot: %s bis %s, Peak %s cm",
+                slot["start"], slot["end"], slot["peak_cm"],
+            )
+        else:
+            log.info("Letzter surfbarer Slot: keiner gefunden (gesamte Historie)")
+    except Exception as e:
+        log.warning("Konnte letzten surfbaren Slot nicht berechnen: %s", e)
 
     # Bonus: Temperatur, falls vorhanden. Nicht kritisch - bei Fehlern nur warnen.
     temp_values = extract_series(html, "Temperatur")

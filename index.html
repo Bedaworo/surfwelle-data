@@ -81,6 +81,7 @@ header{display:flex; justify-content:space-between; align-items:flex-end; gap:16
   background:var(--line); border:1px solid var(--line); border-radius:var(--r);
   overflow:hidden; margin-top:auto}
 .cell{background:var(--deep); padding:9px 11px}
+.cell.wide{grid-column:1/-1}
 .cell .k{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--mute)}
 .cell .v{font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:17px; margin-top:2px}
 .cell .v small{font-size:11px; font-weight:400; color:var(--mute); margin-left:2px}
@@ -200,7 +201,8 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
       <div class="cell"><div class="k">Laufzeit Tü→Welle</div><div class="v" id="c-lag">–<small>h</small></div></div>
       <div class="cell"><div class="k">Max erwartet</div><div class="v" id="c-peak">–<small>cm</small></div></div>
       <div class="cell"><div class="k">Prognose reicht</div><div class="v" id="c-reach">–<small>h</small></div></div>
-      <div class="cell"><div class="k">Grüntensee</div><div class="v" id="c-see">–<small>%</small></div></div>
+      <div class="cell"><div class="k">Grüntensee*</div><div class="v" id="c-see">–<small>%</small></div></div>
+      <div class="cell wide"><div class="k">Letzter surfbarer Slot (≥30min)</div><div class="v" id="c-lastslot">–</div></div>
     </div>
   </div>
 </div>
@@ -306,12 +308,16 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
     Ohne diese Verankerung springt die Kurve am Farbwechsel.
   </p>
   <p class="fine" style="margin-top:10px">
-    <b>Der Füllstand des Grüntensees</b> bezieht sich auf die Bewirtschaftungslamelle
+    <b>* Der Füllstand des Grüntensees</b> bezieht sich auf die Bewirtschaftungslamelle
     875,50 bis 876,50 m ü. NN, innerhalb derer der Betreiber frei steuert. Er sagt nichts über
     die Zukunft voraus (r&nbsp;=&nbsp;0,18 auf den Türkheim-Anstieg), verrät aber, wie viel
     Puffer noch da ist: bei vollem See schlägt ein Quellgebiets-Schub deutlich verlässlicher
-    durch (r&nbsp;=&nbsp;0,48 gegen 0,22 bei leerem See). Darüber liegt noch der
-    Hochwasserschutzraum mit weiteren 6 Metern — der taucht hier nicht auf.
+    durch (r&nbsp;=&nbsp;0,48 gegen 0,22 bei leerem See). Andere Quellen geben oft einen
+    anderen Prozentwert für denselben Pegel an — dort wird meist gegen das
+    Hochwasserstauziel bei 882,00 m ü. NN gerechnet, den physischen Vollstau inklusive
+    Hochwasserschutzraum. Beide Zahlen sind richtig, sie beantworten nur unterschiedliche
+    Fragen: „wie viel Spielraum hat der Betreiber gerade im Normalbetrieb" (unsere) gegen
+    „wie voll ist der See bezogen auf die Gesamtkapazität" (die andere).
   </p>
   <p class="fine" style="margin-top:10px">
     <b>Wo die Pegel nicht mehr hinreichen</b>, steht nur noch die Regenprognose fürs
@@ -498,6 +504,22 @@ async function loadCollected(){
 
 async function loadWave(){
   const text=await getFile('recent_swell.csv');
+  return parseWaveCsv(text);
+}
+
+// Der "letzte surfbare Slot" wird seit fetch_swell.py (find_last_surf_slot)
+// serverseitig vorberechnet und landet in last_surf_slot.json - ein paar
+// Bytes statt der wachsenden Gesamthistorie. surfwelle_manual.csv legt
+// taeglich rund 7,6 kB zu (aktuell ~600 kB nach 2,5 Monaten); die komplett
+// im Browser zu laden und zu durchsuchen waere auf Jahre keine gute
+// Grundlage gewesen. Python braucht fuer denselben Durchlauf ~12ms bei
+// heutiger Groesse, unabhaengig von der Downloadgroesse fuers Chart.
+async function loadLastSurfSlot(){
+  const text=await getFile('last_surf_slot.json');
+  return JSON.parse(text);
+}
+
+function parseWaveCsv(text){
   const raw=[];
   for (const line of text.split('\n').slice(1)){
     const f=line.trim().split(',');
@@ -506,6 +528,10 @@ async function loadWave(){
     if (isFinite(t)&&isFinite(v)) raw.push({t,v});
   }
   raw.sort((a,b)=>a.t-b.t);
+  return despikeWave(raw);
+}
+
+function despikeWave(raw){
   // Sensor-Artefakte: Sprung ueber 30 cm und binnen einer Stunde zurueck auf
   // dasselbe Niveau. Echte Wellen bewegen sich langsamer - ueber den gesamten
   // Datenbestand liegt das 99,9-Perzentil der Schrittaenderung bei 21 cm.
@@ -897,6 +923,23 @@ const PROJ_P = [[3.0,0.00],[4.22,0.15],[5.01,0.22],[6.02,0.51],
 const Q_SURF = 7.67;         // Türkheim für Kanal 11,1 = 57 cm
 const SURF_VON = 8, SURF_BIS = 20;   // die Welle darf nur tagsüber gesurft werden
 
+// "Letzter surfbarer Slot": die Suche selbst laeuft nicht mehr im Browser,
+// sondern serverseitig in fetch_swell.py (find_last_surf_slot) ueber die
+// GESAMTE Historie - siehe loadLastSurfSlot() weiter oben. Hier nur noch
+// die Anzeige des fertigen Ergebnisses aus last_surf_slot.json.
+function showLastSurfSlot(slot){
+  const slotEl=document.getElementById('c-lastslot');
+  if (slot && slot.start && slot.end){
+    const start=parseTime(slot.start), end=parseTime(slot.end);
+    const durMin=Math.round((end-start)/60000);
+    const durTxt=durMin>=60 ? `${Math.floor(durMin/60)}:${String(durMin%60).padStart(2,'0')}h` : `${durMin}min`;
+    slotEl.innerHTML=`${stamp(start)}–${fmtTime.format(end)}`
+      +`<small> · ${durTxt}, ${slot.peak_cm.toFixed(0)}cm Peak</small>`;
+  } else {
+    slotEl.innerHTML=`<small>kein Slot ≥30min in der gesamten Historie</small>`;
+  }
+}
+
 const projProb = mid => mid<=3.0 ? 0 : interp(PROJ_P, mid, 1);
 
 const dayKey=t=>new Intl.DateTimeFormat('en-CA',
@@ -1176,6 +1219,18 @@ async function boot(){
     const lastRow=[...coll].reverse().find(d=>d.rainStart);
     OUTLOOK=loadOutlookFromRow(lastRow);
     renderOutlook(DATA.fc, DATA.coll, DATA.ref);
+
+    // Der "letzte surfbare Slot" ist bereits vorberechnet (fetch_swell.py) -
+    // nur noch ein paar Bytes JSON laden, kein erneutes Parsen der ganzen
+    // (waechst dauerhaft weiter) Wellenhistorie im Browser.
+    document.getElementById('c-lastslot').innerHTML='<small>lädt …</small>';
+    loadLastSurfSlot()
+      .then(slot=>{ showLastSurfSlot(slot); })
+      .catch(e=>{
+        document.getElementById('c-lastslot').innerHTML=
+          `<small>nicht ladbar: ${e.message}</small>`;
+        console.warn('last_surf_slot.json nicht verfuegbar:', e);
+      });
   }catch(e){
     fail('Darstellung fehlgeschlagen.',
       'Die Daten wurden geladen, das Diagramm lässt sich aber nicht zeichnen: '+e.message);

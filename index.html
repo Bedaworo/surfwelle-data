@@ -318,6 +318,10 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
     Hochwasserschutzraum. Beide Zahlen sind richtig, sie beantworten nur unterschiedliche
     Fragen: „wie viel Spielraum hat der Betreiber gerade im Normalbetrieb" (unsere) gegen
     „wie voll ist der See bezogen auf die Gesamtkapazität" (die andere).
+    Sinkt der Pegel unter 875,50 m, zeigt die Kachel 0&nbsp;% statt eines negativen Werts —
+    das ist kein Defekt, sondern bedeutet, dass der Betreiber gerade unterhalb der sonst
+    beschriebenen Lamelle fährt (seit Mitte August 2026 durchgehend der Fall). Für die
+    Pufferrechnung oben zählt weiterhin der tatsächliche, nicht gekappte Wert.
   </p>
   <p class="fine" style="margin-top:10px">
     <b>Wo die Pegel nicht mehr hinreichen</b>, steht nur noch die Regenprognose fürs
@@ -1033,8 +1037,12 @@ function renderOutlook(fc, coll, ref){
 
   const info=days.map((d,i)=>{
     let p=projProb(d.q), src='Regenprognose', when=null;
-    // Stundenprognose: nur Punkte im Surffenster, die noch bevorstehen
-    const pts=fc.near.concat(fc.far).filter(x=>{
+    // Stundenprognose: nur Punkte im Surffenster, die noch bevorstehen.
+    // Gleiche Nah-/Fern-Grenze wie in updateStatus() und render() - sonst
+    // kann derselbe Anker-Effekt hier eine falsche Frueh-Ankunft erzeugen.
+    const futNearD=fc.near.filter(x=>x.t>=ref);
+    const nearEndD=futNearD.length?futNearD[futNearD.length-1].t:ref;
+    const pts=fc.near.concat(fc.far.filter(x=>x.t>nearEndD)).filter(x=>{
       if (x.t<ref || dayKey(x.t)!==d.key) return false;
       const h=berlinHour(x.t);
       return h>=SURF_VON && h<SURF_BIS;
@@ -1136,10 +1144,18 @@ function updateStatus(){
   const lastG=rev.find(d=>isFinite(d.see));
   set('c-tue',tue,'m³/s',2); set('c-fab',fab,'m³/s',1); set('c-lag',lag,'h',1);
   document.getElementById('c-see').innerHTML=
-    (lastG?seePct(lastG.see).toFixed(0):'–')+'<small>%</small>';
+    (lastG?Math.max(0,seePct(lastG.see)).toFixed(0):'–')+'<small>%</small>';
 
   const horizon=ref+FWD*HOUR;
-  const ahead=fc.near.concat(fc.far)
+  // Sebastianskapelle erst dort einmischen, wo der Tuerkheim-Pfad selbst nicht
+  // mehr hinreicht - exakt dieselbe Grenze wie im Chart (render(), nearEnd).
+  // Ohne das kann ein alter, ueber den Anker hochskalierter Fernprognose-Punkt
+  // eine Ankunft "gleich jetzt" zeigen, obwohl die tatsaechliche Laufzeit vom
+  // aktuellen Tuerkheim-Wert das physikalisch gar nicht zulaesst - genau der
+  // Fall, wenn Tuerkheim gerade erst gestiegen ist.
+  const futNear=fc.near.filter(d=>d.t>=ref);
+  const nearEnd=futNear.length?futNear[futNear.length-1].t:ref;
+  const ahead=fc.near.concat(fc.far.filter(d=>d.t>nearEnd))
                 .filter(d=>d.t>=ref&&d.t<=horizon).sort((a,b)=>a.t-b.t);
   const reach=ahead.length?ahead[ahead.length-1].t:ref;
   const peak=ahead.length?Math.max(...ahead.map(d=>d.mid)):NaN;

@@ -599,22 +599,32 @@ function resample(pts, keys){
 
 function buildForecast(coll, wave, ref){
   const rawNear=[], far=[];
+  // Ueberholeffekt: die Laufzeit haengt vom Abfluss ab, also kann ein spaeter
+  // gemessener, hoeherer (= schnellerer) Wert einen frueher gemessenen,
+  // niedrigeren (= noch unterwegs befindlichen) Wert bei der Ankunft
+  // ueberholen. Physikalisch verschluckt die schnellere Welle die langsamere
+  // dann, statt dass beide getrennt ankommen - deshalb werden ueberholte
+  // Punkte hier verworfen statt als eigene, falsche Spitze/Delle stehen zu
+  // bleiben. coll ist bereits chronologisch nach Erfassungszeit sortiert.
   for (const r of coll){
     if (isFinite(r.tue)){
       const lag=lagHours(r.tue)*HOUR;
-      rawNear.push({t:r.t+lag,
+      const pt={t:r.t+lag,
         mid:waveFromFab(fabFromTue(r.tue)),
         lo :waveFromFab(fabLo(r.tue)),
         hi :waveFromFab(fabHi(r.tue)),
-        p  :probFromFab(fabFromTue(r.tue))});
+        p  :probFromFab(fabFromTue(r.tue))};
+      while (rawNear.length && rawNear[rawNear.length-1].t>=pt.t) rawNear.pop();
+      rawNear.push(pt);
     }
     if (isFinite(r.seba)){
       const tu=tueFromSeba(r.seba);
-      far.push({t:r.t+(travel(SEBA2TUE_T,tu)+lagHours(tu))*HOUR,
-                raw:tu, lo:tueSebaLo(r.seba), hi:tueSebaHi(r.seba)});
+      const fp={t:r.t+(travel(SEBA2TUE_T,tu)+lagHours(tu))*HOUR,
+                raw:tu, lo:tueSebaLo(r.seba), hi:tueSebaHi(r.seba)};
+      while (far.length && far[far.length-1].t>=fp.t) far.pop();
+      far.push(fp);
     }
   }
-  rawNear.sort((a,b)=>a.t-b.t); far.sort((a,b)=>a.t-b.t);
 
   // Erst auf ein festes Raster bringen, dann den Versatz messen: die rohen
   // Ankunftszeiten sind ungleichmäßig verteilt (siehe resample), in einem

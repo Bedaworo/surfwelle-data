@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
 TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.12 (research project)"
+USER_AGENT = "surfwelle-augsburg-data-collector/1.13 (research project)"
 
 # HND-Pegel und Stauseen
 HND_TUERKHEIM_URL = (
@@ -201,7 +201,13 @@ HND_RAIN_SCHWABMUENCHEN_URL = (
 LOCATIONS = {
     "kempten":       (47.7333, 10.3167),
     "marktoberdorf": (47.7800, 10.6167),
-    "augsburg":      (48.3667, 10.8833),
+    "augsburg":      (48.3372, 10.8552),  # KORRIGIERT (v1.13): Ackermannwehr/
+                                            # Fabrikkanal-Einlauf in Göggingen statt
+                                            # Innenstadt - bei konvektiven Zellen macht
+                                            # der Versatz von ~4km einen relevanten
+                                            # Unterschied. Key bewusst "augsburg"
+                                            # belassen, damit rain_augsburg_mm in
+                                            # collected.csv durchgehend bleibt.
     "oberjoch":      (47.5159, 10.4058),  # NEU v1.2
     "kaufbeuren":    (47.8812, 10.6246),  # NEU v1.2
     "bobingen":      (48.2700, 10.8300),  # NEU v1.3: Singold/Wertach-Mündungsbereich

@@ -483,7 +483,8 @@ async function loadCollected(){
   const ix=n=>cols.indexOf(n);
   const iT=ix('collected_at'), iTu=ix('tuerkheim_q_m3s'), iSe=ix('sebastianskapelle_q_m3s'),
         iBi=ix('biessenhofen_q_m3s'), iR=ix('forecast_rain_oberjoch_24h_mm'),
-        iG=ix('gruentensee_w_mnn'), iStart=ix('forecast_area_rain_start_date');
+        iG=ix('gruentensee_w_mnn'), iStart=ix('forecast_area_rain_start_date'),
+        iRA=ix('rain_augsburg_mm'), iRB=ix('rain_bobingen_mm');
   const iDay=[...Array(8)].map((_,k)=>ix(`forecast_area_rain_d${k}_mm`));
   if (iT<0) throw new Error('recent.csv: Spalte collected_at fehlt');
   const out=[];
@@ -497,10 +498,27 @@ async function loadCollected(){
     const str=i=>(i>=0&&f[i]!==undefined&&f[i]!==''?f[i]:null);
     out.push({t, tue:num(iTu), seba:num(iSe), bies:num(iBi), rain24:num(iR), see:num(iG),
                rainStart: iStart>=0 ? str(iStart) : null,
-               rainDays: iDay.map(i=>num(i))});
+               rainDays: iDay.map(i=>num(i)),
+               rainAug:num(iRA), rainBob:num(iRB)});
   }
   return out.sort((a,b)=>a.t-b.t);
 }
+
+// NEU: Nahbereichs-Regen (Ackermannwehr/Augsburg, Bobingen) als Risiko-Hinweis,
+// NICHT als kalibrierte Kurve wie RAIN2RISE. Der Alpine Pfad braucht 4,5-9h vom
+// Tuerkheim-Pegel; Regen, der direkt bei Goeggingen/Bobingen faellt, kann den
+// Fabrikkanal/Senkelbach vermutlich in 1-3h erreichen - aber dafuer gibt es
+// noch keinen einzigen ausgewerteten Fall, nur die Vermutung. Deshalb hier
+// bewusst kein Kennlinien-Fit, sondern nur eine Schwelle mit Zeitfenster.
+function localRainOf(d){
+  const a=isFinite(d.rainAug)?d.rainAug:-Infinity;
+  const b=isFinite(d.rainBob)?d.rainBob:-Infinity;
+  const m=Math.max(a,b);
+  return isFinite(m)?m:NaN;
+}
+const LOCAL_RAIN_MIN=3;        // mm in der letzten Stunde, ab hier eine Meldung wert
+const LOCAL_RAIN_LAG_LO=1, LOCAL_RAIN_LAG_HI=3;  // h, geschaetzt, nicht kalibriert
+const LOCAL_RAIN_WINDOW_H=3;   // wie lange eine Meldung noch als "aktuell" zaehlt
 
 async function loadWave(){
   const text=await getFile('recent_swell.csv');
@@ -1183,6 +1201,20 @@ function updateStatus(){
       ${r1.toFixed(1)} m³/s, in einem von fünf Fällen um ${r2.toFixed(1)} — das entspräche
       ${Math.min(w1,w2).toFixed(0)} bis ${Math.max(w1,w2).toFixed(0)} cm an der Welle.
       Wann genau, sagt die Regenprognose nicht.</div>`);
+  }
+  const lastLocal=rev.find(d=>isFinite(localRainOf(d)));
+  if (lastLocal){
+    const v=localRainOf(lastLocal);
+    const ageH=(ref-lastLocal.t)/HOUR;
+    if (v>=LOCAL_RAIN_MIN && ageH<=LOCAL_RAIN_WINDOW_H){
+      const station=v===lastLocal.rainAug?'Augsburg/Göggingen':'Bobingen';
+      const from=lastLocal.t+LOCAL_RAIN_LAG_LO*HOUR, to=lastLocal.t+LOCAL_RAIN_LAG_HI*HOUR;
+      b.push(`<div class="banner warn">Lokalregen erkannt: ${v.toFixed(1)} mm/h bei ${station}
+        um ${fmtTime.format(lastLocal.t)}. Läuft nicht über die Pegel-Prognose oben, weil
+        näher an der Welle als jeder Alpine Pfad. Unkalibrierte Schätzung — möglicher
+        Einfluss zwischen ${fmtTime.format(from)} und ${fmtTime.format(to)}, kein Zahlenwert,
+        nur ein Risikofenster.</div>`);
+    }
   }
   document.getElementById('banners').innerHTML=b.join('');
 }

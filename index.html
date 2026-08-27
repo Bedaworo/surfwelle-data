@@ -203,6 +203,7 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
       <div class="cell"><div class="k">Prognose reicht</div><div class="v" id="c-reach">–<small>h</small></div></div>
       <div class="cell"><div class="k">Grüntensee*</div><div class="v" id="c-see">–<small>%</small></div></div>
       <div class="cell wide"><div class="k">Letzter surfbarer Slot (≥30min)</div><div class="v" id="c-lastslot">–</div></div>
+      <div class="cell wide"><div class="k">Surfbar (letzte 365 Tage)</div><div class="v" id="c-days365">–</div></div>
     </div>
   </div>
 </div>
@@ -538,6 +539,14 @@ async function loadWave(){
 // heutiger Groesse, unabhaengig von der Downloadgroesse fuers Chart.
 async function loadLastSurfSlot(){
   const text=await getFile('last_surf_slot.json');
+  return JSON.parse(text);
+}
+
+// Analog zu last_surf_slot.json: wird serverseitig in compute_surf_stats.py
+// ueber surfwelle_manual.csv (echte Messung) + fabrikkanal_2025/2026.csv
+// (Kanalfluss-Schaetzung als Luecken-Fallback) vorberechnet.
+async function loadSurfDays365(){
+  const text=await getFile('surf_days_365.json');
   return JSON.parse(text);
 }
 
@@ -972,6 +981,14 @@ function showLastSurfSlot(slot){
   }
 }
 
+function showSurfDays365(stats){
+  const el=document.getElementById('c-days365');
+  if (!stats){ el.innerHTML='<small>keine Daten</small>'; return; }
+  const pct=Math.round(100*stats.days_surfable/stats.days_covered);
+  el.innerHTML=`${stats.days_surfable} von ${stats.days_covered} Tagen`
+    +`<small> · ${pct}% · davon ${stats.days_measured} gemessen, ${stats.days_estimated} aus Kanalfluss geschätzt</small>`;
+}
+
 const projProb = mid => mid<=3.0 ? 0 : interp(PROJ_P, mid, 1);
 
 const dayKey=t=>new Intl.DateTimeFormat('en-CA',
@@ -1288,6 +1305,15 @@ async function boot(){
         document.getElementById('c-lastslot').innerHTML=
           `<small>nicht ladbar: ${e.message}</small>`;
         console.warn('last_surf_slot.json nicht verfuegbar:', e);
+      });
+
+    document.getElementById('c-days365').innerHTML='<small>lädt …</small>';
+    loadSurfDays365()
+      .then(stats=>{ showSurfDays365(stats); })
+      .catch(e=>{
+        document.getElementById('c-days365').innerHTML=
+          `<small>nicht ladbar: ${e.message}</small>`;
+        console.warn('surf_days_365.json nicht verfuegbar:', e);
       });
   }catch(e){
     fail('Darstellung fehlgeschlagen.',

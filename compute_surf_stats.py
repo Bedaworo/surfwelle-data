@@ -1,6 +1,6 @@
 """
 Berechnet serverseitig, an wie vielen Tagen die Welle in den letzten 365 Tagen
-surfbar war, und schreibt das Ergebnis nach data/surf_days_365.json.
+surfbar war (>= 57 cm, mindestens 30 Minuten am Stueck, 08-20 Uhr), und schreibt das Ergebnis nach data/surf_days_365.json.
 
 Warum serverseitig (wie schon bei last_surf_slot.json / find_last_surf_slot):
 Die Berechnung braucht drei Quellen ueber ein volles Jahr -
@@ -52,6 +52,8 @@ FAB2WAVE = [
 SURF_CM = 57
 SURF_VON, SURF_BIS = 8, 20  # Nutzungszeit der Welle
 WINDOW_DAYS = 365
+MIN_RUN_MIN = 30   # Welle muss mindestens so lange am Stueck >= SURF_CM sein
+MAX_GAP_MIN = 20   # groesserer Abstand zwischen zwei Werten -> Phase unterbrochen
 
 
 def interp_wave(fab_q: float) -> float:
@@ -66,12 +68,32 @@ def interp_wave(fab_q: float) -> float:
     return max(0.0, pts[-1][1])
 
 
+def longest_run_min(samples: list[tuple[datetime, bool]]) -> float:
+    """Laengste zusammenhaengende Phase (Minuten) mit surfbar=True.
+
+    Dauer = letzter - erster Zeitstempel der Phase. Bei 15-Min-Werten
+    brauchen 30 Minuten also drei aufeinanderfolgende surfbare Werte.
+    Eine Phase bricht ab bei einem nicht surfbaren Wert oder einer
+    Messluecke > MAX_GAP_MIN.
+    """
+    best = 0.0
+    start = prev = None
+    for t, ok in sorted(samples, key=lambda x: x[0]):
+        if not ok:
+            start = prev = None
+            continue
+        if start is None or (t - prev).total_seconds() / 60 > MAX_GAP_MIN:
+            start = t
+        prev = t
+        best = max(best, (prev - start).total_seconds() / 60)
+    return best
+
+
 def load_manual_days(path: Path) -> dict[str, bool]:
-    """Tag (YYYY-MM-DD, Berlin) -> war zu >=1 Zeitpunkt 08-20h surfbar (>=57cm)."""
-    days: dict[str, bool] = {}
-    seen_days: set[str] = set()
+    """Tag (YYYY-MM-DD, Berlin) -> >= MIN_RUN_MIN am Stueck >= SURF_CM zwischen 08-20h."""
+    samples: dict[str, list[tuple[datetime, bool]]] = {}
     if not path.exists():
-        return days
+        return {}
     with open(path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             try:
@@ -81,20 +103,17 @@ def load_manual_days(path: Path) -> dict[str, bool]:
                 continue
             dt = dt.astimezone(BERLIN) if dt.tzinfo else dt.replace(tzinfo=BERLIN)
             key = dt.date().isoformat()
-            seen_days.add(key)
-            if SURF_VON <= dt.hour < SURF_BIS and cm >= SURF_CM:
-                days[key] = True
-    # Tage ohne einen einzigen surfbaren Messpunkt explizit auf False setzen,
-    # damit sie unten als "durch Messung abgedeckt" erkannt werden (nicht nur
-    # als fehlend, was sie an den Kanal-Fallback weiterreichen wuerde).
-    for key in seen_days:
-        days.setdefault(key, False)
-    return days
+            # Jeder gemessene Tag landet in samples -> gilt als "durch Messung
+            # abgedeckt", auch wenn er nie surfbar war.
+            lst = samples.setdefault(key, [])
+            if SURF_VON <= dt.hour < SURF_BIS:
+                lst.append((dt, cm >= SURF_CM))
+    return {k: longest_run_min(v) >= MIN_RUN_MIN for k, v in samples.items()}
 
 
 def load_fab_days(paths: list[Path]) -> dict[str, bool]:
-    """Tag (YYYY-MM-DD, lokale Zeit wie in der CSV) -> war 08-20h surfbar laut Kanalkurve."""
-    days: dict[str, bool] = {}
+    """Tag (YYYY-MM-DD, lokale Zeit wie in der CSV) -> >= MIN_RUN_MIN am Stueck surfbar laut Kanalkurve."""
+    samples: dict[str, list[tuple[datetime, bool]]] = {}
     for path in paths:
         if not path.exists():
             continue
@@ -105,12 +124,10 @@ def load_fab_days(paths: list[Path]) -> dict[str, bool]:
                     q = float(row["fabrikkanal_q_m3s"])
                 except (ValueError, KeyError, TypeError):
                     continue
-                key = dt.date().isoformat()
-                if SURF_VON <= dt.hour < SURF_BIS and interp_wave(q) >= SURF_CM:
-                    days[key] = True
-                else:
-                    days.setdefault(key, False)
-    return days
+                lst = samples.setdefault(dt.date().isoformat(), [])
+                if SURF_VON <= dt.hour < SURF_BIS:
+                    lst.append((dt, interp_wave(q) >= SURF_CM))
+    return {k: longest_run_min(v) >= MIN_RUN_MIN for k, v in samples.items()}
 
 
 def compute() -> dict:

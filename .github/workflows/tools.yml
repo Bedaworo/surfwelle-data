@@ -23,6 +23,7 @@ on:
           - backfill_dry_run        # Backfill-Vorschau: was WÜRDE gefüllt (schreibt nichts)
           - backfill_365_preview    # 365-Tage-Backfill rechnen, Ergebnis als Artefakt (kein Commit)
           - backfill_365_commit     # 365-Tage-Backfill WIRKLICH übernehmen und committen
+          - swell_backfill_commit   # Surfwellen-Pegel der letzten 30 Tage von /pegel nachladen und committen
       days:
         description: 'Tage rückwirkend (für die Backfill-Aufgaben)'
         required: false
@@ -38,15 +39,15 @@ concurrency:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -111,4 +112,28 @@ jobs:
             done
           else
             echo "Keine Lücken gefunden — nichts zu committen."
+          fi
+
+      # --- Surfwellen-Pegel (Swell) nachladen: schliesst die Luecke seit dem
+      #     Umbau der Vereinsseite (letzter Wert in der CSV: 03.10.2026) --------
+      # Feste 720 h = 30 Tage; die Seite liefert groessere Zeitraeume nur als
+      # sehr grosse Seiten. Duplikate werden ueber den Zeitstempel zusammengefuehrt.
+      - name: Swell-Backfill (30 Tage) und committen
+        if: ${{ github.event.inputs.aufgabe == 'swell_backfill_commit' }}
+        run: |
+          echo "::group::fetch_swell.py --hours 720"
+          python fetch_swell.py --hours 720
+          echo "::endgroup::"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain data/)" ]; then
+            git add data/
+            git commit -m "swell backfill 30d: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            for i in 1 2 3; do
+              git pull --rebase origin "${GITHUB_REF_NAME}" && git push && break
+              echo "Push attempt $i failed, retrying..."
+              sleep 5
+            done
+          else
+            echo "Keine neuen Swell-Daten — nichts zu committen."
           fi

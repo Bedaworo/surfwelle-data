@@ -53,6 +53,7 @@ import io
 import logging
 import re
 import sys
+import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,7 +74,16 @@ log = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 
 CSV_PATH = Path(__file__).parent / "data" / "collected.csv"
-TIMEOUT = 30
+# (Connect, Read) in Sekunden. Vorher 30 s pauschal: Bei nicht erreichbarem HND
+# kostete jeder der ~21 Requests 30 s -> Job lief ins 5-Minuten-Limit und wurde
+# abgebrochen, bevor die Zeile geschrieben wurde (komplette Lücke, auch Wetter).
+TIMEOUT = (5, 15)
+
+# Zeitbudget für alle HND-Abfragen zusammen. Danach werden restliche HND-Requests
+# übersprungen, damit Open-Meteo und das Schreiben der Zeile immer drankommen.
+HND_BUDGET_S = 120
+_START = time.monotonic()
+_hnd_down = False  # True, sobald HND nicht erreichbar war -> Rest überspringen
 USER_AGENT = "surfwelle-augsburg-data-collector/1.13 (research project)"
 
 # HND-Pegel und Stauseen
@@ -406,6 +416,37 @@ class Sample:
 # -----------------------------------------------------------------------------
 
 
+def _hnd_get(url: str, label: str) -> Optional[requests.Response]:
+    """
+    Holt eine HND-Seite mit Fail-fast: Ist HND einmal nicht erreichbar (Connect-
+    Timeout / Verbindungsfehler) oder das Zeitbudget aufgebraucht, werden alle
+    weiteren HND-Requests dieses Laufs sofort übersprungen (None).
+    """
+    global _hnd_down
+    if _hnd_down:
+        log.info("HND %s — übersprungen (HND nicht erreichbar)", label)
+        return None
+    if time.monotonic() - _START > HND_BUDGET_S:
+        _hnd_down = True
+        log.warning("HND %s — übersprungen (Zeitbudget %ds aufgebraucht)", label, HND_BUDGET_S)
+        return None
+    try:
+        resp = requests.get(
+            url,
+            timeout=TIMEOUT,
+            headers={"User-Agent": USER_AGENT},
+        )
+        resp.raise_for_status()
+        return resp
+    except (requests.ConnectTimeout, requests.ConnectionError) as e:
+        _hnd_down = True
+        log.warning("HND %s — nicht erreichbar, überspringe restliche HND-Abfragen: %s", label, e)
+        return None
+    except requests.RequestException as e:
+        log.warning("HND %s — HTTP-Fehler: %s", label, e)
+        return None
+
+
 def fetch_hnd(url: str, label: str) -> Optional[tuple[str, float]]:
     """
     Holt die HND-Seite und liest die neueste Zeile der Tabelle.
@@ -422,15 +463,8 @@ def fetch_hnd(url: str, label: str) -> Optional[tuple[str, float]]:
     Backfill: Zellen als reiner Text, strikte Validierung, lieber ein
     verworfener Wert als ein stiller Zahlendreher in den Live-Daten.
     """
-    try:
-        resp = requests.get(
-            url,
-            timeout=TIMEOUT,
-            headers={"User-Agent": USER_AGENT},
-        )
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        log.warning("HND %s — HTTP-Fehler: %s", label, e)
+    resp = _hnd_get(url, label)
+    if resp is None:
         return None
 
     try:
@@ -494,15 +528,8 @@ def fetch_hnd_groundwater(url: str, label: str) -> Optional[tuple[str, float, fl
 
     Gibt (ISO-Timestamp, m_ue_NN, m_u_Gelaende) zurueck.
     """
-    try:
-        resp = requests.get(
-            url,
-            timeout=TIMEOUT,
-            headers={"User-Agent": USER_AGENT},
-        )
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        log.warning("HND %s — HTTP-Fehler: %s", label, e)
+    resp = _hnd_get(url, label)
+    if resp is None:
         return None
 
     try:

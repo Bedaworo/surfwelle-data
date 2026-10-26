@@ -1,12 +1,21 @@
 """
-Ruft die öffentliche Swellreport-Seite (surfwelleaugsburg.de/swell) automatisch
+Ruft die öffentliche Pegelsonden-Seite (surfwelleaugsburg.de/pegel) automatisch
 ab und pflegt die Daten in data/surfwelle_manual.csv ein.
 
 Diese Seite benötigt KEIN Login (anders als buchung.surfwelleaugsburg.de) und
-zeigt bis zu 3 Tage Historie über den URL-Parameter ?chart_hours=72. Die Werte
-stecken direkt als Chart.js-Datenarray im HTML (serverseitig gerendert), lassen
-sich also mit einem einfachen HTTP-GET + Regex extrahieren, ganz ohne
-JavaScript-Ausführung oder Browser.
+zeigt Historie über den URL-Parameter ?chart_hours=N (72 = 3 Tage, 720 = 30
+Tage, ...). Die Werte stecken direkt als Chart.js-Daten im HTML (serverseitig
+gerendert), lassen sich also mit einem einfachen HTTP-GET + Regex extrahieren,
+ganz ohne JavaScript-Ausführung oder Browser.
+
+NEU (Okt 2026): Die Seite wurde umgebaut. Vorher lag /swell mit
+"labels: [...]" + "data: [...]" im HTML; jetzt liegt /pegel mit
+make('stackSwellChart', 'OW Swell (%)', [{"x": <Epoch-ms UTC>, "y": ...}, ...]).
+Die Punkte kommen im 1-Minuten-Raster, der Messwert ändert sich aber nur alle
+5 Minuten -> es wird je 5-Minuten-Slot der erste Punkt übernommen.
+
+Aufruf:  python fetch_swell.py              # letzte 72 h (Routinelauf)
+         python fetch_swell.py --hours 720  # einmaliger Backfill, 30 Tage
 
 Ersetzt den manuellen Ablauf (Seite speichern -> HTML hochladen -> Skript
 konvertiert): dieses Skript kann direkt alle 15 Minuten von GitHub Actions
@@ -27,7 +36,7 @@ import json
 import logging
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -42,56 +51,102 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-SWELL_URL = "https://surfwelleaugsburg.de/swell?chart_hours=72"
-TIMEOUT = 30
-USER_AGENT = "surfwelle-augsburg-data-collector/1.5 (research project)"
+SWELL_URL = "https://surfwelleaugsburg.de/pegel"
+CHART_HOURS = 72
+# (Connect, Read) in Sekunden. Für große Backfills wird der Read-Timeout erhöht.
+TIMEOUT = (5, 30)
+USER_AGENT = "surfwelle-augsburg-data-collector/1.6 (research project)"
+SLOT_MS = 5 * 60 * 1000   # der Sensor misst alle 5 Minuten
 
 SURFWELLE_CSV = Path(__file__).parent / "data" / "surfwelle_manual.csv"
 TEMPERATURE_CSV = Path(__file__).parent / "data" / "temperature_manual.csv"
 LAST_SLOT_JSON = Path(__file__).parent / "data" / "last_surf_slot.json"
 
 
-def fetch_swell_page() -> Optional[str]:
-    """Holt die öffentliche Swellreport-Seite. Kein Login nötig."""
+def fetch_swell_page(hours: int = CHART_HOURS) -> Optional[str]:
+    """Holt die öffentliche Pegelsonden-Seite. Kein Login nötig."""
+    timeout = TIMEOUT if hours <= 168 else (TIMEOUT[0], 120)
     try:
         resp = requests.get(
             SWELL_URL,
-            timeout=TIMEOUT,
+            params={"chart_hours": hours},
+            timeout=timeout,
             headers={"User-Agent": USER_AGENT},
         )
         resp.raise_for_status()
+        log.info(
+            "Pegelseite: HTTP %s, %d Zeichen, final_url=%s",
+            resp.status_code, len(resp.text), resp.url,
+        )
         return resp.text
     except requests.RequestException as e:
-        log.warning("Swellreport-Seite nicht erreichbar: %s", e)
+        log.warning("Pegelseite nicht erreichbar: %s", e)
         return None
 
 
-def extract_series(html: str, label_name: str) -> Optional[list[float]]:
+# make('<canvas-id>', '<Label>', [ {...}, {...} ], <ymin>, <ymax>, ...)
+_MAKE_RE = re.compile(
+    r"make\(\s*'(?P<id>[^']+)'\s*,\s*'(?P<label>[^']+)'\s*,\s*(?P<data>\[.*?\])\s*,",
+    re.S,
+)
+
+
+def extract_chart_points(
+    html: str, chart_id: str, label_hint: str
+) -> Optional[list[tuple[datetime, float]]]:
     """
-    Extrahiert ein Chart.js-Datenarray anhand seines Label-Namens, z.B.
-    'Swell' oder 'Temperatur (°C)'.
+    Liest eine Chart.js-Serie aus dem make(...)-Aufruf der Pegelseite und gibt
+    (Zeitpunkt UTC, Wert) je 5-Minuten-Slot zurück, oder None wenn die Serie
+    nicht gefunden wurde.
+
+    Gesucht wird zuerst über die Canvas-ID (z.B. 'stackSwellChart'), ersatzweise
+    über einen Teil des Labels (z.B. 'Swell'). Die Punkte kommen im
+    1-Minuten-Raster mit Epoch-Millisekunden (UTC); der Messwert ändert sich nur
+    alle 5 Minuten. Je Slot wird der erste Punkt genommen.
     """
-    pattern = re.compile(
-        r"label:\s*'" + re.escape(label_name) + r"[^']*',\s*data:\s*(\[.*?\]),",
-    )
-    m = pattern.search(html)
-    if not m:
+    matches = list(_MAKE_RE.finditer(html))
+    chosen = next((m for m in matches if m.group("id") == chart_id), None)
+    if chosen is None:
+        chosen = next((m for m in matches if label_hint in m.group("label")), None)
+    if chosen is None:
         return None
+
     try:
-        return json.loads(m.group(1))
+        raw = json.loads(chosen.group("data"))
     except json.JSONDecodeError:
         return None
 
+    first_in_slot: dict[int, tuple[int, float]] = {}
+    for pt in raw:
+        try:
+            x = int(pt["x"])
+            y = pt["y"]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if y is None:
+            continue
+        slot = x // SLOT_MS * SLOT_MS
+        if slot not in first_in_slot or x < first_in_slot[slot][0]:
+            first_in_slot[slot] = (x, float(y))
 
-def extract_labels(html: str) -> Optional[list[str]]:
-    """Extrahiert die Zeitstempel-Labels (Format 'DD.MM. HH:MM')."""
-    m = re.search(r"labels:\s*(\[.*?\]),", html)
-    if not m:
-        return None
-    try:
-        return json.loads(m.group(1))
-    except json.JSONDecodeError:
-        return None
+    return [
+        (datetime.fromtimestamp(slot / 1000, timezone.utc), round(val, 2))
+        for slot, (_, val) in sorted(first_in_slot.items())
+    ]
+
+
+def _log_page_diagnosis(html: str) -> None:
+    """Hilft bei der Fehlersuche, wenn die Seitenstruktur nicht mehr passt."""
+    flat = html.replace("\n", " ")
+    log.error("Seitenanfang: %s", flat[:300])
+    for needle in ("make('", "stackSwellChart", "chart_hours", "Swell",
+                   "Chart(", "<canvas", "labels"):
+        idx = html.find(needle)
+        if idx < 0:
+            log.error("Diagnose: %r nicht im HTML", needle)
+        else:
+            log.error("Diagnose: %r bei %d: %s", needle, idx,
+                      html[max(0, idx - 80):idx + 220].replace("\n", " "))
 
 
 def parse_label(label: str, reference_time: datetime) -> datetime:
@@ -281,8 +336,7 @@ def find_spikes(
 
 
 def process_series(
-    labels: list[str],
-    values: list[float],
+    points: list[tuple[datetime, float]],
     reference_time: datetime,
     csv_path: Path,
     value_col: str,
@@ -298,14 +352,9 @@ def process_series(
     muessen.
     """
     new_data = {}
-    for label, value in zip(labels, values):
-        try:
-            dt = parse_label(label, reference_time)
-        except (ValueError, IndexError):
-            log.warning("Konnte Label nicht parsen: %r", label)
-            continue
-        # Die Seite liefert keine Zeitzoneninfo; die Labels sind Ortszeit.
-        # canonical_key haengt den passenden Offset an und rundet auf Minuten.
+    for dt, value in points:
+        # dt ist UTC (aus Epoch-ms). canonical_key rechnet nach Europe/Berlin
+        # um, haengt den passenden Offset an und rundet auf Minuten.
         key = canonical_key(dt)
         if key is None:
             log.warning("Zeitstempel nicht normalisierbar: %r", dt)
@@ -406,34 +455,41 @@ def find_last_surf_slot(
     return {"start": start.isoformat(), "end": end.isoformat(), "peak_cm": peak}
 
 
+def _arg_int(flag: str, default: int) -> int:
+    """Liest '--flag N' aus sys.argv, sonst default."""
+    if flag in sys.argv:
+        try:
+            return max(1, int(sys.argv[sys.argv.index(flag) + 1]))
+        except (IndexError, ValueError):
+            log.warning("%s ohne gueltige Zahl - verwende %d", flag, default)
+    return default
+
+
 def main() -> int:
     log.info("=== Swell-Abruf gestartet ===")
-    html = fetch_swell_page()
+    hours = _arg_int("--hours", CHART_HOURS)
+    log.info("Zeitraum: letzte %d Stunden", hours)
+
+    html = fetch_swell_page(hours)
     if html is None:
-        log.error("Konnte Swellreport-Seite nicht laden - Abbruch.")
+        log.error("Konnte Pegelseite nicht laden - Abbruch.")
         return 1
 
-    labels = extract_labels(html)
-    if labels is None:
+    swell_points = extract_chart_points(html, "stackSwellChart", "Swell")
+    if not swell_points:
+        _log_page_diagnosis(html)
         log.error(
-            "Konnte 'labels'-Array nicht im HTML finden - hat sich die Seite "
+            "Konnte Swell-Serie nicht im HTML finden - hat sich die Seite "
             "strukturell geaendert?"
         )
         return 1
+    log.info(
+        "Swell: %d Punkte (5-Minuten-Raster), %s bis %s UTC",
+        len(swell_points), swell_points[0][0].isoformat(), swell_points[-1][0].isoformat(),
+    )
 
-    swell_values = extract_series(html, "Swell")
-    if swell_values is None:
-        log.error("Konnte Swell-Datenarray nicht im HTML finden.")
-        return 1
-    if len(swell_values) != len(labels):
-        log.error(
-            "Anzahl Swell-Werte (%d) passt nicht zur Anzahl Labels (%d) - "
-            "Abbruch zur Sicherheit.",
-            len(swell_values), len(labels),
-        )
-        return 1
-
-    reference_time = datetime.now()
+    # Naive Ortszeit - so vergleicht find_spikes() seine Zeitstempel.
+    reference_time = datetime.now(BERLIN).replace(tzinfo=None)
     # --clean-all prueft einmalig die gesamte Historie statt nur der letzten
     # 14 Tage. Fuer den Routinelauf nicht noetig und unnoetig invasiv.
     window = None if "--clean-all" in sys.argv else 14
@@ -441,7 +497,7 @@ def main() -> int:
         log.info("Aufraeum-Modus: Ausreisser werden in der GESAMTEN Historie geprueft")
 
     surf_merged = process_series(
-        labels, swell_values, reference_time,
+        swell_points, reference_time,
         SURFWELLE_CSV, "percent", "Swell",
         despike=True, despike_window_days=window,
     )
@@ -464,15 +520,15 @@ def main() -> int:
     except Exception as e:
         log.warning("Konnte letzten surfbaren Slot nicht berechnen: %s", e)
 
-    # Bonus: Temperatur, falls vorhanden. Nicht kritisch - bei Fehlern nur warnen.
-    temp_values = extract_series(html, "Temperatur")
-    if temp_values is not None and len(temp_values) == len(labels):
+    # Bonus: Wassertemperatur Oberwasser. Nicht kritisch - bei Fehlern nur warnen.
+    temp_points = extract_chart_points(html, "stackTempChart", "Temperatur")
+    if temp_points:
         process_series(
-            labels, temp_values, reference_time,
+            temp_points, reference_time,
             TEMPERATURE_CSV, "temp_c", "Temperatur",
         )
     else:
-        log.warning("Temperatur-Datenarray nicht gefunden oder Laenge weicht ab - übersprungen.")
+        log.warning("Temperatur-Serie nicht gefunden - uebersprungen.")
 
     log.info("=== Swell-Abruf erfolgreich beendet ===")
     return 0

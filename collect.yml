@@ -23,15 +23,17 @@ concurrency:
 
 jobs:
   collect:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Fixiert, damit der Wechsel von ubuntu-latest auf Ubuntu 26 (ab 19.10.2026)
+    # nicht unbemerkt die Umgebung ändert.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -39,6 +41,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run collector
+        # Eigenes Limit: Ein Hänger soll schnell abbrechen statt den ganzen Job
+        # bis ans Job-Limit zu blockieren. Normal dauert der Schritt < 1 Minute.
+        timeout-minutes: 3
         run: python collect.py
 
       - name: Fetch swell report (public page, no login)
@@ -48,10 +53,12 @@ jobs:
         # aber der Rest läuft normal weiter.
         run: python fetch_swell.py
         continue-on-error: true
+        timeout-minutes: 2
 
       - name: Compute 365-day surf stats
         run: python compute_surf_stats.py
         continue-on-error: true
+        timeout-minutes: 2
 
       - name: Write recent slices for the web chart
         # collected.csv ist inzwischen ueber 17 MB - zu viel, um sie im
@@ -87,4 +94,3 @@ jobs:
           else
             echo "Keine neuen Daten zu committen."
           fi
-          

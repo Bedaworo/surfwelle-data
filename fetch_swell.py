@@ -14,8 +14,21 @@ make('stackSwellChart', 'OW Swell (%)', [{"x": <Epoch-ms UTC>, "y": ...}, ...]).
 Die Punkte kommen im 1-Minuten-Raster, der Messwert ändert sich aber nur alle
 5 Minuten -> es wird je 5-Minuten-Slot der erste Punkt übernommen.
 
-Aufruf:  python fetch_swell.py              # letzte 72 h (Routinelauf)
-         python fetch_swell.py --hours 720  # einmaliger Backfill, 30 Tage
+Aufruf:  python fetch_swell.py                       # letzte 72 h (Routinelauf)
+         python fetch_swell.py --hours 120           # max. 120 h (= 1-Minuten-Raster)
+         python fetch_swell.py --from-date 2026-10-03 --to-date 2026-10-06 --keep-existing
+                                                      # Backfill in Fenstern <= 4 Tage
+
+WICHTIG - Aufloesung: Die Seite liefert max. ca. 7200 Punkte je Serie. Bis ca.
+120 h ist das ein 1-Minuten-Raster. Bei groesseren Zeitraeumen wird gröber
+gemittelt (720 h -> 6-Minuten-Buckets): Messwerte werden dann verschmiert bzw.
+doppelt belegt, und Slots fehlen. Deshalb bricht das Skript bei gröberem Raster
+ab, statt die Historie zu verfälschen.
+
+Zeitkonvention: Die alte Seite hat den Messwert eines 5-Minuten-Slots mit dem
+ENDE des Slots beschriftet (Vergleich mit 7 Tagen Überlappung: alt = neu + 5 min).
+Damit die Historie in der CSV durchgehend gleich bleibt, wird LABEL_SHIFT_MIN
+auf den neuen Slot-Start addiert.
 
 Ersetzt den manuellen Ablauf (Seite speichern -> HTML hochladen -> Skript
 konvertiert): dieses Skript kann direkt alle 15 Minuten von GitHub Actions
@@ -57,19 +70,36 @@ CHART_HOURS = 72
 TIMEOUT = (5, 30)
 USER_AGENT = "surfwelle-augsburg-data-collector/1.6 (research project)"
 SLOT_MS = 5 * 60 * 1000   # der Sensor misst alle 5 Minuten
+# Alte Seite: Beschriftung = Slot-Ende. Neue Seite: x = Slot-Anfang. Siehe Docstring.
+LABEL_SHIFT_MIN = 5
+# Gröber als das (Sekunden zwischen zwei Punkten) -> Daten sind verschmiert, Abbruch.
+MAX_STEP_S = 90
 
 SURFWELLE_CSV = Path(__file__).parent / "data" / "surfwelle_manual.csv"
 TEMPERATURE_CSV = Path(__file__).parent / "data" / "temperature_manual.csv"
 LAST_SLOT_JSON = Path(__file__).parent / "data" / "last_surf_slot.json"
 
 
-def fetch_swell_page(hours: int = CHART_HOURS) -> Optional[str]:
-    """Holt die öffentliche Pegelsonden-Seite. Kein Login nötig."""
-    timeout = TIMEOUT if hours <= 168 else (TIMEOUT[0], 120)
+def fetch_swell_page(
+    hours: int = CHART_HOURS,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Holt die öffentliche Pegelsonden-Seite. Kein Login nötig.
+    Entweder die letzten `hours` Stunden oder ein Datumsbereich (YYYY-MM-DD,
+    beide Tage einschließlich) - derselbe Mechanismus wie die Auswahl auf der Seite.
+    """
+    timeout = (TIMEOUT[0], 90)
+    params = (
+        {"date_from": date_from, "date_to": date_to}
+        if date_from and date_to
+        else {"chart_hours": hours}
+    )
     try:
         resp = requests.get(
             SWELL_URL,
-            params={"chart_hours": hours},
+            params=params,
             timeout=timeout,
             headers={"User-Agent": USER_AGENT},
         )
@@ -129,10 +159,29 @@ def extract_chart_points(
         if slot not in first_in_slot or x < first_in_slot[slot][0]:
             first_in_slot[slot] = (x, float(y))
 
-    return [
-        (datetime.fromtimestamp(slot / 1000, timezone.utc), round(val, 2))
-        for slot, (_, val) in sorted(first_in_slot.items())
-    ]
+    # Aufloesung pruefen: kleinster Abstand zwischen zwei Rohpunkten.
+    xs = sorted(
+        {int(pt["x"]) for pt in raw if isinstance(pt, dict) and "x" in pt}
+    )
+    steps = [b - a for a, b in zip(xs, xs[1:]) if b > a]
+    if steps and min(steps) / 1000 > MAX_STEP_S:
+        log.error(
+            "%s: Raster nur %.0f s (> %d s) - Zeitraum zu gross, Daten waeren "
+            "verschmiert. Abbruch fuer diese Serie. Fenster verkleinern "
+            "(max. ca. 120 h bzw. 4 Tage).",
+            chart_id, min(steps) / 1000, MAX_STEP_S,
+        )
+        return None
+
+    shift = timedelta(minutes=LABEL_SHIFT_MIN)
+    now_utc = datetime.now(timezone.utc)
+    out = []
+    for slot, (_, val) in sorted(first_in_slot.items()):
+        t = datetime.fromtimestamp(slot / 1000, timezone.utc) + shift
+        if t > now_utc:        # Slot-Ende liegt noch in der Zukunft -> naechster Lauf
+            continue
+        out.append((t, round(val, 2)))
+    return out
 
 
 def _log_page_diagnosis(html: str) -> None:
@@ -343,6 +392,7 @@ def process_series(
     label_for_log: str,
     despike: bool = False,
     despike_window_days: Optional[int] = 14,
+    keep_existing: bool = False,
 ) -> dict[str, float]:
     """
     Parsed eine Serie, merged sie mit der bestehenden CSV, schreibt sie.
@@ -367,7 +417,9 @@ def process_series(
             "%s: %d doppelte Zeitstempel beim Normalisieren zusammengefasst",
             label_for_log, collapsed,
         )
-    merged = {**existing, **new_data}
+    # Routine: die Seite gilt (spaete Korrekturen). Backfill (--keep-existing):
+    # bereits gespeicherte Werte bleiben unangetastet, es wird nur aufgefuellt.
+    merged = {**new_data, **existing} if keep_existing else {**existing, **new_data}
 
     n_before = len(existing)
     n_after = len(merged)
@@ -455,6 +507,16 @@ def find_last_surf_slot(
     return {"start": start.isoformat(), "end": end.isoformat(), "peak_cm": peak}
 
 
+def _arg_str(flag: str) -> Optional[str]:
+    """Liest '--flag WERT' aus sys.argv, sonst None."""
+    if flag in sys.argv:
+        try:
+            return sys.argv[sys.argv.index(flag) + 1]
+        except IndexError:
+            return None
+    return None
+
+
 def _arg_int(flag: str, default: int) -> int:
     """Liest '--flag N' aus sys.argv, sonst default."""
     if flag in sys.argv:
@@ -468,9 +530,17 @@ def _arg_int(flag: str, default: int) -> int:
 def main() -> int:
     log.info("=== Swell-Abruf gestartet ===")
     hours = _arg_int("--hours", CHART_HOURS)
-    log.info("Zeitraum: letzte %d Stunden", hours)
+    date_from = _arg_str("--from-date")
+    date_to = _arg_str("--to-date")
+    keep_existing = "--keep-existing" in sys.argv
+    if date_from and date_to:
+        log.info("Zeitraum: %s bis %s (einschliesslich)%s", date_from, date_to,
+                 ", bestehende Werte bleiben" if keep_existing else "")
+    else:
+        log.info("Zeitraum: letzte %d Stunden%s", hours,
+                 ", bestehende Werte bleiben" if keep_existing else "")
 
-    html = fetch_swell_page(hours)
+    html = fetch_swell_page(hours, date_from, date_to)
     if html is None:
         log.error("Konnte Pegelseite nicht laden - Abbruch.")
         return 1
@@ -500,6 +570,7 @@ def main() -> int:
         swell_points, reference_time,
         SURFWELLE_CSV, "percent", "Swell",
         despike=True, despike_window_days=window,
+        keep_existing=keep_existing,
     )
 
     # Serverseitig vorberechnen, wann die Welle zuletzt surfbar war - siehe
@@ -526,6 +597,7 @@ def main() -> int:
         process_series(
             temp_points, reference_time,
             TEMPERATURE_CSV, "temp_c", "Temperatur",
+            keep_existing=keep_existing,
         )
     else:
         log.warning("Temperatur-Serie nicht gefunden - uebersprungen.")

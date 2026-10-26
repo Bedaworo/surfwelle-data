@@ -23,7 +23,7 @@ on:
           - backfill_dry_run        # Backfill-Vorschau: was WÜRDE gefüllt (schreibt nichts)
           - backfill_365_preview    # 365-Tage-Backfill rechnen, Ergebnis als Artefakt (kein Commit)
           - backfill_365_commit     # 365-Tage-Backfill WIRKLICH übernehmen und committen
-          - swell_backfill_commit   # Surfwellen-Pegel der letzten 30 Tage von /pegel nachladen und committen
+          - swell_repair_commit     # Swell-/Temperatur-CSV auf Stand 3.10. zurücksetzen und sauber (1-Min-Raster) nachladen
       days:
         description: 'Tage rückwirkend (für die Backfill-Aufgaben)'
         required: false
@@ -114,26 +114,51 @@ jobs:
             echo "Keine Lücken gefunden — nichts zu committen."
           fi
 
-      # --- Surfwellen-Pegel (Swell) nachladen: schliesst die Luecke seit dem
-      #     Umbau der Vereinsseite (letzter Wert in der CSV: 03.10.2026) --------
-      # Feste 720 h = 30 Tage; die Seite liefert groessere Zeitraeume nur als
-      # sehr grosse Seiten. Duplikate werden ueber den Zeitstempel zusammengefuehrt.
-      - name: Swell-Backfill (30 Tage) und committen
-        if: ${{ github.event.inputs.aufgabe == 'swell_backfill_commit' }}
+      # --- Swell-Reparatur ------------------------------------------------------
+      # Hintergrund: Der erste Backfill mit 720 h hat nur ein 6-Minuten-Raster
+      # bekommen (Seite begrenzt auf ca. 7200 Punkte) und dabei Werte verschmiert,
+      # Slots ausgelassen, die Woche vor dem 3.10. überschrieben und eine andere
+      # Zeitkonvention als die alte Seite benutzt (+5 min).
+      # 1) Beide CSVs auf den Stand vom 3.10. (Commit 426fbaf) zurücksetzen,
+      # 2) von 03.10. bis heute in 4-Tage-Fenstern (1-Minuten-Raster) nachladen,
+      #    bestehende Werte bleiben (--keep-existing),
+      # 3) Routinelauf (72 h) setzt die jüngsten Werte,
+      # 4) committen. Bricht ein Schritt ab, wird NICHTS committen (bash -e).
+      - name: Swell-Reparatur und Nachladen, dann committen
+        if: ${{ github.event.inputs.aufgabe == 'swell_repair_commit' }}
         run: |
-          echo "::group::fetch_swell.py --hours 720"
-          python fetch_swell.py --hours 720
+          RAW="https://raw.githubusercontent.com/Bedaworo/surfwelle-data/426fbaf/data"
+          echo "::group::CSVs auf Stand 03.10. zurücksetzen"
+          curl -fsSL -o data/surfwelle_manual.csv  "$RAW/surfwelle_manual.csv"
+          curl -fsSL -o data/temperature_manual.csv "$RAW/temperature_manual.csv"
+          wc -l data/surfwelle_manual.csv data/temperature_manual.csv
           echo "::endgroup::"
+
+          today=$(date -u +%F)
+          d="2026-10-03"
+          while [[ ! "$d" > "$today" ]]; do
+            e=$(date -u -d "$d + 3 days" +%F)
+            if [[ "$e" > "$today" ]]; then e="$today"; fi
+            echo "::group::Fenster $d bis $e"
+            python fetch_swell.py --from-date "$d" --to-date "$e" --keep-existing
+            echo "::endgroup::"
+            d=$(date -u -d "$d + 3 days" +%F)
+          done
+
+          echo "::group::Routinelauf (72 h)"
+          python fetch_swell.py
+          echo "::endgroup::"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ -n "$(git status --porcelain data/)" ]; then
             git add data/
-            git commit -m "swell backfill 30d: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git commit -m "swell repair: $(date -u +'%Y-%m-%d %H:%M UTC')"
             for i in 1 2 3; do
               git pull --rebase origin "${GITHUB_REF_NAME}" && git push && break
               echo "Push attempt $i failed, retrying..."
               sleep 5
             done
           else
-            echo "Keine neuen Swell-Daten — nichts zu committen."
+            echo "Keine Änderungen — nichts zu committen."
           fi

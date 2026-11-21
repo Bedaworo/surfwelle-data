@@ -162,6 +162,11 @@ td.n{font-family:"IBM Plex Mono",monospace}
 .hi td{color:var(--amber)}
 p.fine{color:var(--mute); font-size:12.5px; max-width:72ch}
 p.fine b{color:var(--foam); font-weight:500}
+ul.fine{color:var(--mute); font-size:12.5px; max-width:72ch; margin:6px 0 0; padding-left:18px}
+ul.fine li{margin:3px 0}
+ul.fine b{color:var(--foam); font-weight:500}
+.explain h2+p, .explain h2+ul{margin-top:0}
+.explain h2:not(:first-child){margin-top:22px}
 footer{border-top:1px solid var(--line); padding-top:14px; margin-top:4px}
 footer a{color:var(--mute); font-size:12.5px; text-decoration:none}
 footer a:hover{color:var(--water); text-decoration:underline}
@@ -267,15 +272,44 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
 </div>
 
 <div class="explain">
+  <h2>So liest du das Diagramm</h2>
+  <p class="fine">
+    <b>Die Farben</b> an der Pegellatte und im Diagramm zeigen, wie gut die Welle läuft
+    (Einteilung wie bei surfwelleaugsburg.de):
+    <span style="color:#DC3545">unter 57 cm nicht surfbar</span>,
+    <span style="color:#FFC107">57–65 cm wenig Wasser</span>,
+    <span style="color:#0D6EFD">65–75 cm ausreichend</span>,
+    <span style="color:#198754">ab 75 cm viel Wasser</span>.
+    „Surfbar“ heißt hier immer: mindestens 57 cm.
+  </p>
+  <ul class="fine">
+    <li><b>Gelb, durchgezogen:</b> die gemessene Welle.</li>
+    <li><b>Gelb, gestrichelt:</b> die Vorhersage aus dem Pegel Türkheim. Sie reicht je nach
+      Wassermenge 6 bis 9 Stunden voraus.</li>
+    <li><b>Violett, gestrichelt:</b> die Vorhersage aus Sebastianskapelle, weit oben im Allgäu.
+      Sie reicht weiter, zeigt aber eher die Richtung (steigt oder fällt) als den genauen Wert.</li>
+    <li><b>Rot, gestrichelt:</b> dieselbe Vorhersage, rückwirkend gerechnet. So siehst du, wie gut
+      sie zuletzt lag; die Zahl unter dem Diagramm ist die mittlere Abweichung.</li>
+    <li><b>Hellblau:</b> geschätzte Wassermenge im Fabrikkanal. <b>Weiß:</b> die Wertach bei
+      Türkheim.</li>
+    <li><b>Abgedunkelter Bereich:</b> Hier reichen die Pegel nicht mehr. Das Band zeigt nur, welche
+      Wellenhöhe der vorhergesagte Regen ungefähr bringen kann – nicht, wann.</li>
+  </ul>
+  <p class="fine" style="margin-top:10px">
+    <b>* Grüntensee:</b> der Stausee ganz oben an der Wertach. <b>100 %</b> heißt, er steht auf
+    seinem normalen Stauziel (876,05 m) – zusätzliches Wasser aus den Bergen läuft dann weitgehend
+    durch. Ist er weniger voll, hält er Regenwasser zurück, bis er wieder aufgefüllt ist; 0 %
+    entspricht 875,50 m. Steht in der Kachel <b>„+ x cm“</b>, hat der See bei Hochwasser Wasser
+    zurückgehalten und gibt es in den nächsten Tagen nach und nach ab – das hält die Wertach länger
+    hoch. Die Prozentzahl gilt nur für diesen Betriebsbereich, nicht für das ganze Seevolumen.
+  </p>
+
   <h2>Wie die Prognose entsteht</h2>
   <p class="fine">
-    Der Fabrikkanal führt das Wasser, das die Welle speist — er erklärt die gemessene
-    Wellenhöhe mit r&nbsp;=&nbsp;0,93. Seine Werte liegen nicht live vor, deshalb wird er
-    aus dem Pegel Türkheim geschätzt. Die Kennlinie stammt aus 322 Tagen echter Kanaldaten.
-    Die Laufzeit ist abflussabhängig, und zwar in jedem Flussabschnitt nach demselben
-    Gesetz: T&nbsp;=&nbsp;T₁₀&nbsp;·&nbsp;(Q/10)^−b. Für Türkheim&nbsp;→&nbsp;Welle ergibt die
-    Messung über den Jahresdatensatz T₁₀&nbsp;=&nbsp;5,7&nbsp;h und b&nbsp;=&nbsp;0,40
-    (R²&nbsp;=&nbsp;0,98) — also gut 9 Stunden bei Niedrigwasser und knapp 6 bei viel Wasser.
+    Die Welle hängt fast nur davon ab, wie viel Wasser im Fabrikkanal ankommt. Diese Werte gibt es
+    nicht live, deshalb schätzen wir sie aus dem Pegel Türkheim an der Wertach – auf Basis von
+    322 Tagen echter Kanaldaten. Von Türkheim bis zur Welle braucht das Wasser etwa 6 Stunden bei
+    viel und gut 9 Stunden bei wenig Wasser.
   </p>
   <table>
     <thead><tr><th>Kanal</th><th>Welle</th><th>surfbar</th></tr></thead>
@@ -289,69 +323,12 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
     </tbody>
   </table>
   <p class="fine" style="margin-top:14px">
-    <b>Der Ausblick-Umschalter</b> wählt das Zeitfenster, nicht die Datenquelle — die zieht
-    das Diagramm selbst. Türkheim trägt je nach Abfluss 6 bis 9 Stunden; wo das endet,
-    übernimmt Sebastianskapelle.
+    Ab etwa 23 m³/s im Kanal wird die Welle nicht mehr höher – mehr fasst der Kanal nicht.
   </p>
   <p class="fine" style="margin-top:10px">
-    <b>Warum Sebastianskapelle und nicht Haslach:</b> Sebastianskapelle liegt <em>oberhalb</em>
-    des Grüntensees — der Pegel läuft dem Seespiegel rund 6 Stunden voraus und zeigt das
-    Wasser, bevor der Speicher darüber entscheidet. Haslach liegt <em>unterhalb</em> und folgt
-    dem See um 3 Stunden; sein Signal hat die Pufferung schon hinter sich. Zu Türkheim ergibt
-    das rund 12 Stunden Vorlauf bei Sebastianskapelle gegen 4 bei Haslach.
-  </p>
-  <p class="fine" style="margin-top:10px">
-    Die violette Kurve sagt allerdings <b>keinen absoluten Wert</b> voraus, sondern nur, wie
-    sich Türkheim relativ verändert; verankert wird sie am aktuellen Türkheim-Stand. Der Grund:
-    die Kennlinie ist über ein ganzes Jahr gefittet, und ihre Korrelation von 0,85 stammt zu
-    einem guten Teil daher, dass beide Pegel im Winter hoch und im Sommer niedrig stehen.
-    Innerhalb einer Trockenphase liegt sie als absoluter Wert um mehr als Faktor zwei daneben.
-    Ohne diese Verankerung springt die Kurve am Farbwechsel.
-  </p>
-  <p class="fine" style="margin-top:10px">
-    <b>* Der Füllstand des Grüntensees</b> bezieht sich auf die Bewirtschaftungslamelle
-    875,50 bis 876,50 m ü. NN, innerhalb derer der Betreiber frei steuert. Er sagt nichts über
-    die Zukunft voraus (r&nbsp;=&nbsp;0,18 auf den Türkheim-Anstieg), verrät aber, wie viel
-    Puffer noch da ist: bei vollem See schlägt ein Quellgebiets-Schub deutlich verlässlicher
-    durch (r&nbsp;=&nbsp;0,48 gegen 0,22 bei leerem See). Andere Quellen geben oft einen
-    anderen Prozentwert für denselben Pegel an — dort wird meist gegen das
-    Hochwasserstauziel bei 882,00 m ü. NN gerechnet, den physischen Vollstau inklusive
-    Hochwasserschutzraum. Beide Zahlen sind richtig, sie beantworten nur unterschiedliche
-    Fragen: „wie viel Spielraum hat der Betreiber gerade im Normalbetrieb" (unsere) gegen
-    „wie voll ist der See bezogen auf die Gesamtkapazität" (die andere).
-    Sinkt der Pegel unter 875,50 m, zeigt die Kachel 0&nbsp;% statt eines negativen Werts —
-    das ist kein Defekt, sondern bedeutet, dass der Betreiber gerade unterhalb der sonst
-    beschriebenen Lamelle fährt (seit Mitte August 2026 durchgehend der Fall). Für die
-    Pufferrechnung oben zählt weiterhin der tatsächliche, nicht gekappte Wert.
-  </p>
-  <p class="fine" style="margin-top:10px">
-    <b>Wo die Pegel nicht mehr hinreichen</b>, steht nur noch die Regenprognose fürs
-    Quellgebiet. Sie erklärt rund 20 % der Streuung des Türkheim-Anstiegs — genug für eine
-    Spanne, zu wenig für eine Linie und viel zu wenig für einen Zeitpunkt. Deshalb liegt sie
-    als waagrechtes Band im abgedunkelten Bereich: die Wellenhöhe, die bei diesem Regen
-    plausibel ist, ohne Aussage wann. Die obere Kante ist das 80.&nbsp;Perzentil — sie wurde
-    über 1482 Stunden in 80 % der Fälle eingehalten.
-  </p>
-  <p class="fine" style="margin-top:10px">
-    <b>Die blasse Linie im Rückblick</b> ist dieselbe Schätzung, rückwirkend gerechnet.
-    Daran lässt sich ablesen, wie gut das Modell zuletzt lag; die Kennzahl unter dem
-    Diagramm ist die mittlere Abweichung im sichtbaren Fenster.
-  </p>
-  <p class="fine" style="margin-top:10px">
-    Der Bezugspunkt („letzter Messwert") kommt aus den Daten, nicht von der Uhr des Geräts.
-    Weichen beide um mehr als 20 Minuten ab, steht das oben rechts.
-  </p>
-  <p class="fine" style="margin-top:10px">
-    <b>Die vier Farbstufen</b> der Pegellatte und der Schwellenlinien im Diagramm folgen der
-    Einteilung von surfwelleaugsburg.de: <span style="color:#DC3545">unter 57 cm nicht
-    surfbar</span>, <span style="color:#FFC107">57–65 cm wenig Wasser</span>,
-    <span style="color:#0D6EFD">65–75 cm ausreichend</span>,
-    <span style="color:#198754">ab 75 cm viel Wasser</span>. „Surfbar" bedeutet im Modell
-    durchgängig ≥ 57 cm.
-  </p>
-  <p class="fine" style="margin-top:10px">
-    Der Kanal sättigt bei 23 m³/s — mehr Wasser in der Wertach bringt darüber keine höhere
-    Welle mehr.
+    Der <b>Ausblick-Umschalter</b> wählt nur, wie weit das Diagramm nach vorne zeigt. Die Zeit
+    „letzter Messwert“ kommt aus den Daten; weicht sie mehr als 20 Minuten von der Uhr deines
+    Geräts ab, steht das oben rechts.
   </p>
 </div>
 
@@ -433,9 +410,12 @@ const travel=(p,Q)=>p.t10*Math.pow(Math.min(Math.max(Q,2),40)/10, -p.b);
 
 const SEBA_WARN = 4.0;       // m³/s
 const BIAS_CM = -2.9;        // Kennlinien sind Mediane; gegen 73 Tage Messung +2,9 cm
-// Bewirtschaftungslamelle des Grüntensees laut Wasserwirtschaftsamt Kempten:
-// das AÜW steuert nach eigenem Ermessen zwischen diesen beiden Höhen.
-const SEE_MIN = 875.50, SEE_MAX = 876.50;
+// Grüntensee: SEE_MAX ist das tatsaechliche Stauziel. Tageswerte 1969-2026
+// (GKD 12403000): nach jeder Hochwasserspitze kehrt der See auf 876,02-876,08
+// zurueck, seit 1990 in jedem Monat das haeufigste Halteniveau. Darueber =
+// Ueberstau, der ueber die folgenden Tage gedrosselt abgegeben wird.
+// SEE_MIN bleibt die untere Kante der Bewirtschaftungslamelle (WWA Kempten).
+const SEE_MIN = 875.50, SEE_MAX = 876.05;
 const seePct = m => (m-SEE_MIN)/(SEE_MAX-SEE_MIN)*100;
 
 function interp(t,x,c){
@@ -1172,8 +1152,11 @@ function updateStatus(){
     (isFinite(v)?v.toFixed(d):'–')+`<small>${u}</small>`;
   const lastG=rev.find(d=>isFinite(d.see));
   set('c-tue',tue,'m³/s',2); set('c-fab',fab,'m³/s',1); set('c-lag',lag,'h',1);
-  document.getElementById('c-see').innerHTML=
-    (lastG?Math.max(0,seePct(lastG.see)).toFixed(0):'–')+'<small>%</small>';
+  // Ueber dem Stauziel: 100 % plus Ueberstau in cm statt Prozent > 100
+  const ueberCm=lastG?Math.round((lastG.see-SEE_MAX)*100):NaN;
+  document.getElementById('c-see').innerHTML = !lastG ? '–<small>%</small>'
+    : ueberCm>=1 ? `100<small>% +${ueberCm} cm</small>`
+    : Math.min(100,Math.max(0,seePct(lastG.see))).toFixed(0)+'<small>%</small>';
 
   const horizon=ref+FWD*HOUR;
   // Sebastianskapelle erst dort einmischen, wo der Tuerkheim-Pfad selbst nicht
@@ -1233,9 +1216,9 @@ function updateStatus(){
     let z=`<div class="banner warn">Vorwarnung: Sebastianskapelle bei ${lastS.seba.toFixed(1)} m³/s
       (normal 1–2). Im Quellgebiet oberhalb des Grüntensees hat es kräftig geregnet.`;
     if (isFinite(p))
-      z += p>=55
-        ? ` Der See steht bei ${p.toFixed(0)} % — wenig Puffer, der Schub dürfte durchschlagen.`
-        : ` Der See steht bei ${p.toFixed(0)} % und hat noch Platz; ob er den Schub durchlässt oder wegpuffert, entscheidet der Betreiber.`;
+      z += p>=90
+        ? ` Der Grüntensee ist voll – der Schub dürfte weitgehend durchlaufen.`
+        : ` Der Grüntensee ist nicht voll (${Math.max(0,p).toFixed(0)} %) und hält einen Teil zurück, bis er wieder aufgefüllt ist.`;
     b.push(z+'</div>');
   }
   if (lastR&&lastR.rain24>=RAIN_MIN&&isFinite(tue)){

@@ -140,6 +140,8 @@ option{background:var(--deep); color:var(--foam); font-weight:400}
 .oday .dn{font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--mute)}
 .oday .mm{font-family:"IBM Plex Mono",monospace; font-size:14px; font-weight:600; margin:3px 0 5px}
 .oday .mm small{font-size:9px; font-weight:400; color:var(--mute)}
+.oday .emo{font-size:14px; line-height:20px; min-height:20px; letter-spacing:-2px; white-space:nowrap}
+.oday .emo.st{font-size:11px}
 .obar{height:44px; display:flex; align-items:flex-end; justify-content:center; gap:2px}
 .obar i{display:block; width:9px; border-radius:1px 1px 0 0; background:var(--water)}
 .obar i.hi{background:rgba(13,202,240,.35)}
@@ -1173,19 +1175,25 @@ function renderOutlook(fc, coll, ref){
   card('oLikely', likely && likely.p>=0.1 ? likely : null, 'kein Tag über 10 %');
 
   const fmtD=new Intl.DateTimeFormat('de-DE',{weekday:'short',timeZone:'Europe/Berlin'});
-  const maxMM=Math.max(4,...days.map(d=>d.mm));
+  // Regen absolut in Stufen: ab 1 mm eine Wolke, ab 5 mm zwei, ab 10 mm drei.
+  // Aus 488 Tagen (Jul 2025 - Nov 2026), Tage unter der Surfschwelle:
+  // surfbar in 2 Tagen bei <1 mm 18 %, 1-5 mm 38 %, 5-10 mm 58 %, 10-15 mm 64 %.
+  // Ab ~5 mm reagiert die Wertach deutlich; >10 mm gibt es an ~jedem 15. Tag.
+  const RAIN_STEPS=[1,5,10];
   let html='';
   info.forEach((d,i)=>{
-    const lo=Math.max(1.2, d.q+interp(PROJ_BAND,Math.max(i,1),1));
-    const hi=d.q+interp(PROJ_BAND,Math.max(i,1),2);
     const hit=d.p>=0.25;
-    const h=Math.round(Math.min(1,d.mm/maxMM)*40);
+    const surf=!d.past&&d.p>=0.5;
+    const cm=waveOfQ(d.q);
+    const stars=cm>=75?3:cm>=65?2:1;
+    const clouds=RAIN_STEPS.filter(x=>Math.round(d.mm)>=x).length;   // gerundet wie die mm-Anzeige
     const lbl=d.key===today?'heute':fmtD.format(new Date(d.key+'T12:00:00'));
     html+=`<div class="oday${hit?' hit':''}">
       <div class="dn">${lbl}</div>
+      <div class="emo">${clouds?'🌧️'.repeat(clouds):'&nbsp;'}</div>
       <div class="mm">${d.mm.toFixed(0)}<small>mm</small></div>
-      <div class="obar"><i style="height:${Math.max(h,2)}px"></i></div>
-      <div class="cm">${waveOfQ(lo).toFixed(0)}–${waveOfQ(hi).toFixed(0)} cm</div>
+      <div class="emo">${surf?'🏄🏼':'&nbsp;'}</div>
+      <div class="emo st">${surf?'⭐'.repeat(stars):'&nbsp;'}</div>
       <div class="pp">${d.past?'—':Math.round(d.p*100)+' %'}</div>
     </div>`;
   });

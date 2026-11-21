@@ -243,7 +243,7 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
 <div class="key">
   <span><i style="border-color:#FFC107"></i>Welle gemessen (cm)</span>
   <span><i style="border-color:#FFC107;border-top-style:dashed"></i>Schätzung aus Türkheim (cm)</span>
-  <span><i style="border-color:#6F42C1;border-top-style:dashed"></i>aus Sebastianskapelle (cm)</span>
+  <span><i style="border-color:#6F42C1;border-top-style:dashed"></i>aus Grüntensee-Abfluss (cm)</span>
   <span><i style="border-color:#DC3545;border-top-style:dashed"></i>Schätzung rückblickend (cm)</span>
   <span><i style="border-color:#0DCAF0"></i>Kanal geschätzt (m³/s)</span>
   <span><i style="border-color:#F8F9FA"></i>Türkheim (m³/s)</span>
@@ -286,8 +286,9 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
     <li><b>Gelb, durchgezogen:</b> die gemessene Welle.</li>
     <li><b>Gelb, gestrichelt:</b> die Vorhersage aus dem Pegel Türkheim. Sie reicht je nach
       Wassermenge 6 bis 9 Stunden voraus.</li>
-    <li><b>Violett, gestrichelt:</b> die Vorhersage aus Sebastianskapelle, weit oben im Allgäu.
-      Sie reicht weiter, zeigt aber eher die Richtung (steigt oder fällt) als den genauen Wert.</li>
+    <li><b>Violett, gestrichelt:</b> die Vorhersage aus dem Abfluss des Grüntensees (Pegel Haslach).
+      Was der See gerade mehr oder weniger abgibt, kommt etwa 13 Stunden später in Türkheim an.
+      Sie reicht damit weiter als die gelbe Linie.</li>
     <li><b>Rot, gestrichelt:</b> dieselbe Vorhersage, rückwirkend gerechnet. So siehst du, wie gut
       sie zuletzt lag; die Zahl unter dem Diagramm ist die mittlere Abweichung.</li>
     <li><b>Hellblau:</b> geschätzte Wassermenge im Fabrikkanal. <b>Weiß:</b> die Wertach bei
@@ -408,6 +409,16 @@ const TUE2WAVE = {t10:5.71, b:0.401};
 const SEBA2TUE_T = {t10:12.36, b:0.32};
 const travel=(p,Q)=>p.t10*Math.pow(Math.min(Math.max(Q,2),40)/10, -p.b);
 
+// Haslach Werksabfluss -> Türkheim, aus 42 Abgabestufen des Grüntensees
+// (Jul 2025 - Nov 2026): Haslach->Biessenhofen T10=8,4 h b=0,33 plus
+// Biessenhofen->Türkheim T10=4,84 h; direkt gemessen median 14 h.
+// Backtest 12 h voraus (Türkheim + Haslach-Änderung): MAE 1,05 m³/s gegen
+// 1,24 beim alten Sebastianskapelle-Pfad und 1,09 bei reiner Persistenz.
+const HAS2TUE_T = {t10:13.2, b:0.32};
+// Überstau-Abbau des Grüntensees (Median der fallenden Tage seit 2015),
+// [ab Seestand m ü. NN, cm pro Tag]. Seefläche aus Zufluss/Abfluss-Bilanz.
+const SEE_DRAIN = [[876.10,2],[876.30,11],[876.50,25],[879.00,18]];
+const SEE_AREA_M2 = 1.15e6;
 const SEBA_WARN = 4.0;       // m³/s
 const BIAS_CM = -2.9;        // Kennlinien sind Mediane; gegen 73 Tage Messung +2,9 cm
 // Grüntensee: SEE_MAX ist das tatsaechliche Stauziel. Tageswerte 1969-2026
@@ -470,7 +481,7 @@ async function loadCollected(){
   const ix=n=>cols.indexOf(n);
   const iT=ix('collected_at'), iTu=ix('tuerkheim_q_m3s'), iSe=ix('sebastianskapelle_q_m3s'),
         iBi=ix('biessenhofen_q_m3s'), iR=ix('forecast_rain_oberjoch_24h_mm'),
-        iG=ix('gruentensee_w_mnn'), iStart=ix('forecast_area_rain_start_date'),
+        iG=ix('gruentensee_w_mnn'), iHa=ix('haslach_q_m3s'), iStart=ix('forecast_area_rain_start_date'),
         iRA=ix('rain_augsburg_mm'), iRB=ix('rain_bobingen_mm');
   const iDay=[...Array(8)].map((_,k)=>ix(`forecast_area_rain_d${k}_mm`));
   if (iT<0) throw new Error('recent.csv: Spalte collected_at fehlt');
@@ -483,7 +494,7 @@ async function loadCollected(){
     if (!isFinite(t)) continue;
     const num=i=>(i>=0&&f[i]!==undefined&&f[i]!==''?parseFloat(f[i]):NaN);
     const str=i=>(i>=0&&f[i]!==undefined&&f[i]!==''?f[i]:null);
-    out.push({t, tue:num(iTu), seba:num(iSe), bies:num(iBi), rain24:num(iR), see:num(iG),
+    out.push({t, tue:num(iTu), seba:num(iSe), bies:num(iBi), rain24:num(iR), see:num(iG), has:num(iHa),
                rainStart: iStart>=0 ? str(iStart) : null,
                rainDays: iDay.map(i=>num(i)),
                rainAug:num(iRA), rainBob:num(iRB)});
@@ -608,13 +619,6 @@ function buildForecast(coll, wave, ref){
       while (rawNear.length && rawNear[rawNear.length-1].t>=pt.t) rawNear.pop();
       rawNear.push(pt);
     }
-    if (isFinite(r.seba)){
-      const tu=tueFromSeba(r.seba);
-      const fp={t:r.t+(travel(SEBA2TUE_T,tu)+lagHours(tu))*HOUR,
-                raw:tu, lo:tueSebaLo(r.seba), hi:tueSebaHi(r.seba)};
-      while (far.length && far[far.length-1].t>=fp.t) far.pop();
-      far.push(fp);
-    }
   }
 
   // Erst auf ein festes Raster bringen, dann den Versatz messen: die rohen
@@ -663,28 +667,37 @@ function buildForecast(coll, wave, ref){
     mid:Math.max(0,d.mid+bias), lo:Math.max(0,d.lo+bias),
     hi :Math.max(0,d.hi+bias),  p:d.p}));
 
-  // Die Kennlinie Sebastianskapelle -> Türkheim ist über das ganze Jahr
-  // gefittet. Ihre hohe Korrelation kommt zu einem guten Teil daher, dass
-  // beide Pegel im Winter hoch und im Sommer niedrig stehen - als absoluter
-  // Wert liegt sie innerhalb einer Trockenphase deutlich daneben. Deshalb
-  // wird sie nur für die relative Änderung benutzt und am aktuellen
-  // Türkheim-Stand verankert. Ohne das springt die Kurve an der Nahtstelle.
+  // Fernpfad aus Haslach (Abfluss direkt unter dem Grüntensee): Was dort
+  // gerade mehr oder weniger abfliesst als vor einer Laufzeit, kommt eine
+  // Laufzeit spaeter 1:1 in Türkheim dazu. Das Wasser, das jetzt Türkheim
+  // passiert, hat Haslach vor L Stunden verlassen - deshalb ist der Bezug
+  // Haslach(ref-L), und die Kurve setzt ohne Sprung am aktuellen Stand an.
   const lastT=[...coll].reverse().find(d=>isFinite(d.tue));
-  let scale=1;
-  if (lastT && far.length){
-    const anchor=far.reduce((a,b)=>Math.abs(b.t-ref)<Math.abs(a.t-ref)?b:a);
-    if (anchor.raw>0.2) scale=lastT.tue/anchor.raw;
+  const farMapped=[];
+  if (lastT){
+    const L=travel(HAS2TUE_T,lastT.tue)*HOUR;
+    const hasRows=coll.filter(d=>isFinite(d.has));
+    const at=t=>{let best=null;
+      for (const d of hasRows) if (!best||Math.abs(d.t-t)<Math.abs(best.t-t)) best=d;
+      return best&&Math.abs(best.t-t)<=HOUR?best.has:NaN;};
+    const base=at(lastT.t-L);
+    if (isFinite(base)){
+      for (const d of hasRows){
+        if (d.t<=lastT.t-L) continue;
+        const tu=Math.max(0.3,lastT.tue+d.has-base);
+        const pt={t:d.t+L+lagHours(tu)*HOUR,
+          mid:Math.max(0,waveFromFab(fabFromTue(tu))+bias),
+          lo :Math.max(0,waveFromFab(fabLo(tu))+bias),
+          hi :Math.max(0,waveFromFab(fabHi(tu))+bias),
+          p  :probFromFab(fabFromTue(tu))};
+        while (farMapped.length && farMapped[farMapped.length-1].t>=pt.t) farMapped.pop();
+        farMapped.push(pt);
+      }
+    }
   }
-  const farMapped=far.map(d=>{
-    const tu=d.raw*scale;
-    return {t:d.t, mid:Math.max(0,waveFromFab(fabFromTue(tu))+bias),
-            lo :Math.max(0,waveFromFab(fabFromTue(d.lo*scale))+bias),
-            hi :Math.max(0,waveFromFab(fabFromTue(d.hi*scale))+bias),
-            p  :probFromFab(fabFromTue(tu))};
-  });
 
   return {near, far:resample(farMapped,keys),
-          scale, bias, biasN, biasAuto};
+          bias, biasN, biasAuto};
 }
 
 /* ---------- Pegellatte ---------- */
@@ -742,7 +755,7 @@ function render(){
   // direkt am Strich ansetzt und nicht erst beim naechsten Rasterpunkt.
   const iFirst=fc.near.findIndex(d=>d.t>=ref);
   const fut =fc.near.filter((d,i)=>vis(d.t)&&(d.t>=ref||i===iFirst-1));
-  // Sebastianskapelle erst ab dort, wo Türkheim nicht mehr hinreicht - so hat
+  // Fernpfad (Haslach) erst ab dort, wo Türkheim nicht mehr hinreicht - so hat
   // jeder Abschnitt der Kurve genau eine Quelle und man sieht, wo sie wechselt.
   const nearEnd=fut.length?fut[fut.length-1].t:ref;
   const ff=fc.far.filter(d=>vis(d.t)&&d.t>nearEnd);
@@ -761,7 +774,7 @@ function render(){
        yAxisID:'y',backgroundColor:'rgba(111,66,193,.13)',fill:'+1',order:7},
       {label:'Band   ',data:ff.map(d=>({x:d.t,y:+d.lo.toFixed(1)})),borderWidth:0,pointRadius:0,
        yAxisID:'y',order:7},
-      {label:'aus Sebastianskapelle',data:ff.map(d=>({x:d.t,y:+d.mid.toFixed(1)})),
+      {label:'aus Grüntensee-Abfluss',data:ff.map(d=>({x:d.t,y:+d.mid.toFixed(1)})),
        borderColor:'#6F42C1',borderWidth:2,borderDash:[3,3],pointRadius:0,tension:.3,
        yAxisID:'y',order:2}
     );
@@ -1037,7 +1050,7 @@ function renderOutlook(fc, coll, ref){
 
   // --- Wahrscheinlichkeit je Tag ---------------------------------------
   // Für heute und morgen liefert die Stundenprognose aus Türkheim und
-  // Sebastianskapelle den genaueren Wert - sie kennt den Zeitpunkt. Ab
+  // der Fernpfad den genaueren Wert - sie kennt den Zeitpunkt. Ab
   // übermorgen bleibt nur die Tagesprojektion aus dem Regen.
   const today=dayKey(ref);
   const days=OUTLOOK.slice(0,7).map((d,i)=>({key:d.day, mm:d.mm, q:mid[i], i}));
@@ -1159,7 +1172,7 @@ function updateStatus(){
     : Math.min(100,Math.max(0,seePct(lastG.see))).toFixed(0)+'<small>%</small>';
 
   const horizon=ref+FWD*HOUR;
-  // Sebastianskapelle erst dort einmischen, wo der Tuerkheim-Pfad selbst nicht
+  // Fernpfad (Haslach) erst dort einmischen, wo der Tuerkheim-Pfad selbst nicht
   // mehr hinreicht - exakt dieselbe Grenze wie im Chart (render(), nearEnd).
   // Ohne das kann ein alter, ueber den Anker hochskalierter Fernprognose-Punkt
   // eine Ankunft "gleich jetzt" zeigen, obwohl die tatsaechliche Laufzeit vom
@@ -1220,6 +1233,20 @@ function updateStatus(){
         ? ` Der Grüntensee ist voll – der Schub dürfte weitgehend durchlaufen.`
         : ` Der Grüntensee ist nicht voll (${Math.max(0,p).toFixed(0)} %) und hält einen Teil zurück, bis er wieder aufgefüllt ist.`;
     b.push(z+'</div>');
+  }
+  // Überstau: der See steht über dem Stauziel und baut das in den nächsten
+  // Tagen gedrosselt ab. Erst ab spürbarer Zusatzabgabe (>= 0,5 m³/s) melden.
+  if (lastG&&lastG.see>SEE_MAX+0.05){
+    const rate=h=>{let r=0; for (const [lv,cm] of SEE_DRAIN) if (h>=lv) r=cm; return r;};
+    const qOf=h=>rate(h)/100*SEE_AREA_M2/86400;
+    let h=lastG.see, days=0;
+    while (h>SEE_MAX+0.02 && days<30){ h-=Math.max(rate(h),0.5)/100; days++; }
+    const q0=qOf(lastG.see);
+    if (q0>=0.5)
+      b.push(`<div class="banner far">Der Grüntensee steht ${Math.round((lastG.see-SEE_MAX)*100)} cm
+        über seinem Stauziel und gibt das Wasser nach und nach ab – zurzeit etwa
+        ${q0.toFixed(1)} m³/s zusätzlich in der Wertach, insgesamt rund ${days} Tag${days>1?'e':''}.
+        Das hält den Pegel länger oben.</div>`);
   }
   if (lastR&&lastR.rain24>=RAIN_MIN&&isFinite(tue)){
     const r1=interp(RAIN2RISE,lastR.rain24,1), r2=interp(RAIN2RISE,lastR.rain24,2);

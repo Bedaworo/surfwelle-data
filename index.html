@@ -1171,8 +1171,38 @@ function renderOutlook(fc, coll, ref){
     else if (d.i>1) t+=` · Zeitpunkt offen`;
     s.textContent=t;
   };
-  card('oEarly', early, 'nichts in Sicht');
-  card('oLikely', likely && likely.p>=0.1 ? likely : null, 'kein Tag über 10 %');
+  // Läuft die Welle gerade, sind "frühestens" und "wahrscheinlichster Tag"
+  // sinnlos (beide "heute"). Stattdessen: aktueller Stand und wie lange es
+  // voraussichtlich noch reicht (Tage am Stück mit >= 50 %).
+  const lastW=DATA&&DATA.wave.length?DATA.wave[DATA.wave.length-1]:null;
+  const running=lastW&&lastW.v>=SURF_CM;
+  const setTitle=(id,t)=>{document.querySelector(`#${id} .ok`).textContent=t;};
+  if (running){
+    setTitle('oEarly','Läuft gerade'); setTitle('oLikely','Surfbar voraussichtlich bis');
+    const e=document.getElementById('oEarly');
+    e.classList.add('on');
+    e.querySelector('.ov').textContent='Jetzt';
+    e.querySelector('.od').textContent=`${lastW.v.toFixed(0)} cm gemessen um ${fmtTime.format(lastW.t)}`;
+    let lastOk=null, cut=false;
+    for (const x of info){
+      if (x.past) continue;
+      if (x.p>=0.5) lastOk=x; else { cut=true; break; }
+    }
+    const l=document.getElementById('oLikely');
+    if (lastOk){
+      l.classList.add('on');
+      l.querySelector('.ov').textContent=(cut?'':'mindestens ')+label(lastOk).replace(/^(\w)/,c=>c.toUpperCase());
+      l.querySelector('.od').textContent=cut?'danach unter 50 %':'Ende der 7-Tage-Aussicht';
+    } else {
+      l.classList.remove('on');
+      l.querySelector('.ov').textContent='heute';
+      l.querySelector('.od').textContent='ab morgen unter 50 %';
+    }
+  } else {
+    setTitle('oEarly','Frühestens möglich'); setTitle('oLikely','Wahrscheinlichster Tag');
+    card('oEarly', early, 'nichts in Sicht');
+    card('oLikely', likely && likely.p>=0.1 ? likely : null, 'kein Tag über 10 %');
+  }
 
   const fmtD=new Intl.DateTimeFormat('de-DE',{weekday:'short',timeZone:'Europe/Berlin'});
   // Regen absolut in Stufen: ab 1 mm eine Wolke, ab 5 mm zwei, ab 10 mm drei.

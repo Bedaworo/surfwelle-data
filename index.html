@@ -1019,7 +1019,7 @@ function showSurfDays365(stats){
   if (!stats){ el.innerHTML='<small>keine Daten</small>'; return; }
   const pct=Math.round(100*stats.days_surfable/stats.days_covered);
   el.innerHTML=`${stats.days_surfable} von ${stats.days_covered} Tagen`
-    +`<small> · ${pct}% · davon ${stats.days_measured} gemessen, ${stats.days_estimated} aus Fabrikkanal geschätzt</small>`;
+    +`<small> · ${pct}%</small>`;
 }
 
 const projProb = mid => mid<=3.0 ? 0 : interp(PROJ_P, mid, 1);
@@ -1230,7 +1230,10 @@ function updateStatus(){
 
   const v=document.getElementById('verdict');
   const running=lastW&&lastW.v>=SURF_CM;
-  if (running){ v.textContent='Die Welle läuft.'; v.className='verdict on'; }
+  if (running){
+    // Sterne nach den Farbstufen: 57-65 wenig, 65-75 ausreichend, ab 75 viel Wasser
+    const stars=lastW.v>=75?3:lastW.v>=65?2:1;
+    v.textContent='Die Welle läuft. 🏄🏼 '+'⭐'.repeat(stars); v.className='verdict on'; }
   else if (pmax>=0.5){ v.textContent='Sie könnte anspringen.'; v.className='verdict on'; }
   else { v.textContent='Die Welle läuft nicht.'; v.className='verdict off'; }
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Surfwelle Augsburg — Kanalprognose</title>
+<title>Surfwelle Augsburg — Prognose</title>
 
 <!-- Homescreen-Icon und Vollbild-Anzeige (iOS + Android) -->
 <link rel="manifest" href="manifest.json">
@@ -107,6 +107,8 @@ option{background:var(--deep); color:var(--foam); font-weight:400}
 .chartbox{position:relative; height:380px; background:var(--deep);
   border:1px solid var(--line); border-radius:var(--r); padding:10px}
 @media(max-width:620px){.chartbox{height:310px}}
+.key label.tog{display:inline-flex; align-items:center; gap:0; cursor:pointer}
+.key label.tog input{margin:0 6px 0 0; accent-color:var(--amber); width:14px; height:14px}
 .key{display:flex; gap:15px; flex-wrap:wrap; font-size:12px; color:var(--mute); margin:10px 0 8px}
 .key i{display:inline-block; width:16px; height:0; border-top-width:3px;
   border-top-style:solid; vertical-align:middle; margin-right:5px}
@@ -202,7 +204,7 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
     <div id="banners"></div>
     <div class="grid">
       <div class="cell"><div class="k">Türkheim</div><div class="v" id="c-tue">–<small>m³/s</small></div></div>
-      <div class="cell"><div class="k">Kanal geschätzt</div><div class="v" id="c-fab">–<small>m³/s</small></div></div>
+      <div class="cell"><div class="k">Fabrikkanal geschätzt</div><div class="v" id="c-fab">–<small>m³/s</small></div></div>
       <div class="cell"><div class="k">Laufzeit Tü→Welle</div><div class="v" id="c-lag">–<small>h</small></div></div>
       <div class="cell"><div class="k">Max erwartet</div><div class="v" id="c-peak">–<small>cm</small></div></div>
       <div class="cell"><div class="k">Prognose reicht</div><div class="v" id="c-reach">–<small>h</small></div></div>
@@ -217,6 +219,7 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
   <label class="pick">
     <span class="lbl">Rückblick</span>
     <select id="segBack" aria-label="Zeitraum Rückblick">
+      <option value="0">0 h</option>
       <option value="1">1 h</option>
       <option value="2">2 h</option>
       <option value="6">6 h</option>
@@ -229,12 +232,7 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
   <label class="pick fwd">
     <span class="lbl">Ausblick</span>
     <select id="segFwd" aria-label="Zeitraum Ausblick">
-      <option value="1">1 h</option>
-      <option value="2">2 h</option>
-      <option value="6">6 h</option>
       <option value="12" selected>12 h</option>
-      <option value="18">18 h</option>
-      <option value="24">24 h</option>
     </select>
   </label>
 </div>
@@ -244,9 +242,9 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
   <span><i style="border-color:#FFC107"></i>Welle gemessen (cm)</span>
   <span><i style="border-color:#FFC107;border-top-style:dashed"></i>Schätzung aus Türkheim (cm)</span>
   <span><i style="border-color:#6F42C1;border-top-style:dashed"></i>aus Grüntensee-Abfluss (cm)</span>
-  <span><i style="border-color:#DC3545;border-top-style:dashed"></i>Schätzung rückblickend (cm)</span>
-  <span><i style="border-color:#0DCAF0"></i>Kanal geschätzt (m³/s)</span>
-  <span><i style="border-color:#F8F9FA"></i>Türkheim (m³/s)</span>
+  <label class="tog"><input type="checkbox" data-line="past" checked><i style="border-color:#DC3545;border-top-style:dashed"></i>Schätzung rückblickend (cm)</label>
+  <label class="tog"><input type="checkbox" data-line="kanal" checked><i style="border-color:#0DCAF0"></i>Fabrikkanal geschätzt (m³/s)</label>
+  <label class="tog"><input type="checkbox" data-line="tue" checked><i style="border-color:#F8F9FA"></i>Türkheim (m³/s)</label>
 </div>
 <div class="skill" id="skill"></div>
 
@@ -284,8 +282,9 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
   </p>
   <ul class="fine">
     <li><b>Gelb, durchgezogen:</b> die gemessene Welle.</li>
-    <li><b>Gelb, gestrichelt:</b> die Vorhersage aus dem Pegel Türkheim. Sie reicht je nach
-      Wassermenge 6 bis 9 Stunden voraus.</li>
+    <li><b>Gelb, gestrichelt:</b> die Vorhersage aus dem Pegel Türkheim. Sie reicht so weit voraus,
+      wie das Wasser von Türkheim bis zur Welle braucht – den aktuellen Wert zeigt die Kachel
+      „Laufzeit Tü→Welle“.</li>
     <li><b>Violett, gestrichelt:</b> die Vorhersage aus dem Abfluss des Grüntensees (Pegel Haslach).
       Was der See gerade mehr oder weniger abgibt, kommt etwa 13 Stunden später in Türkheim an.
       Sie reicht damit weiter als die gelbe Linie.</li>
@@ -307,13 +306,14 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
 
   <h2>Wie die Prognose entsteht</h2>
   <p class="fine">
-    Die Welle hängt fast nur davon ab, wie viel Wasser im Fabrikkanal ankommt. Diese Werte gibt es
-    nicht live, deshalb schätzen wir sie aus dem Pegel Türkheim an der Wertach – auf Basis von
-    322 Tagen echter Kanaldaten. Von Türkheim bis zur Welle braucht das Wasser etwa 6 Stunden bei
-    viel und gut 9 Stunden bei wenig Wasser.
+    Die Welle hängt fast nur davon ab, wie viel Wasser im Fabrikkanal ankommt – er speist den
+    Senkelbach, in dem sich die Welle befindet. Die Werte des Fabrikkanals gibt es nicht live, deshalb
+    schätzen wir sie aus dem Pegel Türkheim an der Wertach – auf Basis von 322 Tagen echter
+    Messdaten. Von Türkheim bis zur Welle braucht das Wasser je nach Menge etwa 3 Stunden
+    (Hochwasser) bis 11 Stunden (sehr wenig Wasser).
   </p>
   <table>
-    <thead><tr><th>Kanal</th><th>Welle</th><th>surfbar</th></tr></thead>
+    <thead><tr><th>Fabrikkanal</th><th>Welle</th><th>surfbar</th></tr></thead>
     <tbody>
       <tr><td class="n">&lt; 8 m³/s</td><td class="n">bis 42 cm</td><td class="n">0 %</td></tr>
       <tr><td class="n">9,1 m³/s</td><td class="n">≈ 48 cm</td><td class="n">9 %</td></tr>
@@ -324,10 +324,12 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
     </tbody>
   </table>
   <p class="fine" style="margin-top:14px">
-    Ab etwa 23 m³/s im Kanal wird die Welle nicht mehr höher – mehr fasst der Kanal nicht.
+    Ab etwa 23 m³/s im Fabrikkanal wird die Welle nicht mehr höher – mehr fasst der Kanal nicht.
   </p>
   <p class="fine" style="margin-top:10px">
-    Der <b>Ausblick-Umschalter</b> wählt nur, wie weit das Diagramm nach vorne zeigt. Die Zeit
+    Die <b>Umschalter</b> wählen nur, wie weit das Diagramm zurück und nach vorne zeigt; mit 0 h
+    blendest du eine Seite aus. Der Ausblick geht höchstens so weit, wie die Pegel gerade reichen.
+    Die Häkchen an der Legende blenden einzelne Linien aus. Die Zeit
     „letzter Messwert“ kommt aus den Daten; weicht sie mehr als 20 Minuten von der Uhr deines
     Geräts ab, steht das oben rechts.
   </p>
@@ -723,7 +725,8 @@ function drawStaff(cm){
 }
 
 /* ---------- Chart ---------- */
-let chart, DATA=null, HOURS=24, FWD=12, OUTLOOK=null;
+let chart, DATA=null, HOURS=24, FWD=12, FWD_WANT=12, REACH_H=24, OUTLOOK=null;
+const FWD_STEPS=[0,1,2,6,12,18,24,36];
 
 // Zuletzt gewaehltes Zeitfenster merken, damit es einen Reload uebersteht.
 // localStorage ist hier unbedenklich - das ist eine normale, uebers Netz
@@ -733,16 +736,50 @@ const LS_BACK='surfwelle_rueckblick_h', LS_FWD='surfwelle_ausblick_h';
 try{
   const b=localStorage.getItem(LS_BACK), f=localStorage.getItem(LS_FWD);
   if (b && document.querySelector(`#segBack option[value="${b}"]`)) HOURS=+b;
-  if (f && document.querySelector(`#segFwd option[value="${f}"]`)) FWD=+f;
+  if (f!==null && isFinite(+f)) FWD_WANT=FWD=+f;
 }catch(e){ /* Safari privates Fenster o.ae. blockiert localStorage - dann bleibt es beim Standard */ }
 document.getElementById('segBack').value=HOURS;
-document.getElementById('segFwd').value=FWD;
+
+// Ausblick-Auswahl an die aktuelle Pegelreichweite anpassen: Standardstufen
+// unterhalb der Reichweite plus die Reichweite selbst als Maximum. Der Wunsch
+// des Nutzers (FWD_WANT) bleibt gespeichert und greift wieder, sobald die
+// Reichweite es zulaesst.
+function fullReachH(fc, ref){
+  const futNear=fc.near.filter(d=>d.t>=ref);
+  const nearEnd=futNear.length?futNear[futNear.length-1].t:ref;
+  const ahead=fc.near.concat(fc.far.filter(d=>d.t>nearEnd)).filter(d=>d.t>=ref);
+  const last=ahead.length?Math.max(...ahead.map(d=>d.t)):ref;
+  return Math.max(0,Math.floor((last-ref)/HOUR));
+}
+function buildFwdOptions(reachH){
+  REACH_H=reachH;
+  const vals=FWD_STEPS.filter(v=>v<reachH).concat(reachH);
+  const sel=document.getElementById('segFwd');
+  sel.innerHTML=vals.map(v=>`<option value="${v}">${v} h${v===reachH&&v>0?' (max)':''}</option>`).join('');
+  FWD=Math.min(FWD_WANT,reachH);
+  if (!vals.includes(FWD)) FWD=vals.filter(v=>v<=FWD).pop()??0;
+  sel.value=FWD;
+}
+
+// Linien ein-/ausblenden, Auswahl im Browser gespeichert
+const LS_LINES='surfwelle_linien_v1';
+let HIDE={};
+try{ HIDE=JSON.parse(localStorage.getItem(LS_LINES)||'{}')||{}; }catch(e){ HIDE={}; }
+document.querySelectorAll('.key input[data-line]').forEach(cb=>{
+  cb.checked=!HIDE[cb.dataset.line];
+  cb.addEventListener('change',()=>{
+    HIDE[cb.dataset.line]=!cb.checked;
+    try{ localStorage.setItem(LS_LINES, JSON.stringify(HIDE)); }catch(e){}
+    render();
+  });
+});
 
 function render(){
   if (!DATA) return;
   const {coll,wave,fc,ref}=DATA;
-  const from=ref-HOURS*HOUR;
+  let from=ref-HOURS*HOUR;
   const to=ref+FWD*HOUR;
+  if (to-from<HOUR) from=ref-HOUR;   // beide Umschalter auf 0 h: wenigstens 1 h zeigen
   const vis=t=>t>=from&&t<=to;
 
   const wSeries=wave.filter(d=>vis(d.t)).map(d=>({x:d.t,y:d.v}));
@@ -781,16 +818,16 @@ function render(){
   }
 
   ds.push(
-    {label:'Schätzung rückblickend',data:past,borderColor:'#DC3545',
+    {label:'Schätzung rückblickend',data:HIDE.past?[]:past,borderColor:'#DC3545',
      borderWidth:1.5,borderDash:[3,3],pointRadius:0,tension:.25,yAxisID:'y',order:4},
     {label:'Schätzung aus Türkheim',data:fut.map(d=>({x:d.t,y:+d.mid.toFixed(1)})),
      borderColor:'#FFC107',borderWidth:2.5,borderDash:[5,4],pointRadius:0,tension:.3,
      yAxisID:'y',order:1},
     {label:'Welle gemessen',data:wSeries,borderColor:'#FFC107',borderWidth:2,
      pointRadius:0,tension:.25,yAxisID:'y',order:0},
-    {label:'Kanal geschätzt',data:kSeries,borderColor:'#0DCAF0',borderWidth:1.6,
+    {label:'Fabrikkanal geschätzt',data:HIDE.kanal?[]:kSeries,borderColor:'#0DCAF0',borderWidth:1.6,
      pointRadius:0,tension:.25,yAxisID:'y1',order:3},
-    {label:'Türkheim',data:tSeries,borderColor:'#F8F9FA',borderWidth:1.2,
+    {label:'Türkheim',data:HIDE.tue?[]:tSeries,borderColor:'#F8F9FA',borderWidth:1.2,
      pointRadius:0,tension:.25,yAxisID:'y1',order:5}
   );
 
@@ -879,10 +916,11 @@ function render(){
         ctx.moveTo(x,y2); ctx.lineTo(a.right,y2); ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle='rgba(183,156,219,.9)'; ctx.font='10px "IBM Plex Mono"';
-        ctx.fillText(`Regenaussicht ${rainBand.mm.toFixed(0)} mm — Zeitpunkt offen`,x+6,a.bottom-8);
+        const lbl=`Regenaussicht ${rainBand.mm.toFixed(0)} mm — Zeitpunkt offen`;
+        if (ctx.measureText(lbl).width+12<=a.right-x) ctx.fillText(lbl,x+6,a.bottom-8);
       } else {
         ctx.fillStyle='rgba(173,181,189,.75)'; ctx.font='10px "IBM Plex Mono"';
-        ctx.fillText('kein Pegelsignal',x+6,a.bottom-8);
+        if (ctx.measureText('kein Pegelsignal').width+12<=a.right-x) ctx.fillText('kein Pegelsignal',x+6,a.bottom-8);
       }
       ctx.restore();
     },
@@ -981,7 +1019,7 @@ function showSurfDays365(stats){
   if (!stats){ el.innerHTML='<small>keine Daten</small>'; return; }
   const pct=Math.round(100*stats.days_surfable/stats.days_covered);
   el.innerHTML=`${stats.days_surfable} von ${stats.days_covered} Tagen`
-    +`<small> · ${pct}% · davon ${stats.days_measured} gemessen, ${stats.days_estimated} aus Kanalfluss geschätzt</small>`;
+    +`<small> · ${pct}% · davon ${stats.days_measured} gemessen, ${stats.days_estimated} aus Fabrikkanal geschätzt</small>`;
 }
 
 const projProb = mid => mid<=3.0 ? 0 : interp(PROJ_P, mid, 1);
@@ -1171,7 +1209,7 @@ function updateStatus(){
     : ueberCm>=1 ? `100<small>% +${ueberCm} cm</small>`
     : Math.min(100,Math.max(0,seePct(lastG.see))).toFixed(0)+'<small>%</small>';
 
-  const horizon=ref+FWD*HOUR;
+  const horizon=Infinity;   // Status immer ueber die volle Reichweite, unabhaengig vom Ausblick-Umschalter
   // Fernpfad (Haslach) erst dort einmischen, wo der Tuerkheim-Pfad selbst nicht
   // mehr hinreicht - exakt dieselbe Grenze wie im Chart (render(), nearEnd).
   // Ohne das kann ein alter, ueber den Anker hochskalierter Fernprognose-Punkt
@@ -1201,27 +1239,18 @@ function updateStatus(){
   if (!isFinite(tue)) txt='Kein aktueller Pegelwert verfügbar.';
   else if (pmax>=0.5){
     const when=ahead.find(d=>d.p>=0.5);
-    txt=`Der geschätzte Kanalabfluss von ${fab.toFixed(1)} m³/s reicht aus. `
-      + `Ab etwa ${stamp(when.t)} bei ${Math.round(pmax*100)} % Wahrscheinlichkeit, `
+    txt=`Ab etwa ${stamp(when.t)} bei ${Math.round(pmax*100)} % Wahrscheinlichkeit, `
       + `erwarteter Höchststand ${peak.toFixed(0)} cm.`
-      + (isFinite(bies)?(bies>=5.5
-          ? ` Biessenhofen bestätigt mit ${bies.toFixed(1)} m³/s.`
-          : ` Biessenhofen liegt nur bei ${bies.toFixed(1)} m³/s — ohne diese Bestätigung stimmt die Warnung seltener.`):'');
+      + (isFinite(bies)&&bies<5.5
+          ? ` Biessenhofen liegt nur bei ${bies.toFixed(1)} m³/s — ohne diese Bestätigung stimmt die Warnung seltener.`:'');
   }
   else if (pmax>=0.15)
-    txt=`Knapp: geschätzt ${fab.toFixed(1)} m³/s im Kanal, Höchststand um ${peak.toFixed(0)} cm. `
-      + `Für ${SURF_CM} cm fehlen rund ${Math.max(0,11.1-fab).toFixed(1)} m³/s.`;
+    txt=`Knapp: Höchststand um ${peak.toFixed(0)} cm. `
+      + `Für ${SURF_CM} cm fehlen rund ${Math.max(0,11.1-fab).toFixed(1)} m³/s im Fabrikkanal.`;
   else
-    txt=`Geschätzt ${fab.toFixed(1)} m³/s im Kanal — für ${SURF_CM} cm braucht es etwa 11,1. `
+    txt=`Für ${SURF_CM} cm braucht es etwa 11,1 m³/s im Fabrikkanal. `
       + `Bis ${stamp(reach)} ändert sich daran nichts.`;
   document.getElementById('note').textContent=txt;
-
-  // Wenn das gewaehlte Fenster ueber die Pegelreichweite hinausgeht, sagen,
-  // wo die Prognose endet - sonst wirkt der leere Bereich wie ein Fehler.
-  const gapH=Math.round((horizon-reach)/HOUR);
-  if (gapH>=1)
-    document.getElementById('note').textContent +=
-      ` Die letzten ${gapH} Stunden des Fensters decken die Pegel nicht ab.`;
 
   const b=[];
   if (lastS&&lastS.seba>=SEBA_WARN){
@@ -1298,6 +1327,7 @@ async function boot(){
     const ref=Math.max(lw,lc);
     if (!ref) throw new Error('keine verwertbaren Zeitstempel');
     DATA={coll,wave,fc:buildForecast(coll,wave,ref),ref};
+    buildFwdOptions(fullReachH(DATA.fc,ref));
     updateStatus();
     render();
     // Die 7-Tage-Regenprognose steckt seit collect.py v1.11 schon in recent.csv -
@@ -1339,7 +1369,7 @@ document.getElementById('segBack').addEventListener('change',e=>{
   try{ localStorage.setItem(LS_BACK, e.target.value); }catch(err){}
 });
 document.getElementById('segFwd').addEventListener('change',e=>{
-  FWD=+e.target.value;
+  FWD_WANT=FWD=+e.target.value;
   if (DATA){ updateStatus(); render(); }
   try{ localStorage.setItem(LS_FWD, e.target.value); }catch(err){}
 });

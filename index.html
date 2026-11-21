@@ -576,6 +576,38 @@ function despikeWave(raw){
   return out;
 }
 
+// Sondenfehler am Ende der Messreihe: despikeWave erkennt nur Spitzen, die
+// binnen einer Stunde zurueckkehren. Springt die Welle dagegen um mehr als
+// 30 cm in hoechstens 10 Minuten und bleibt dort, obwohl Türkheim/Fabrikkanal
+// fuer denselben Zeitraum keine Aenderung ueber 15 cm erwarten lassen, ist das
+// fast sicher die Sonde (seit Mai 2026 kein echter Sprung dieser Groesse,
+// 99,9-Perzentil der Schrittaenderung 21 cm). Gilt hoechstens 24 h lang -
+// danach wird der neue Stand als echt akzeptiert.
+function modelWaveAt(coll,t){
+  let best=null;
+  for (const d of coll){
+    if (!isFinite(d.tue)) continue;
+    if (d.t+lagHours(d.tue)*HOUR<=t) best=d; else break;
+  }
+  return best?waveFromFab(fabFromTue(best.tue)):NaN;
+}
+function detectSensorFault(wave,coll){
+  if (wave.length<3) return null;
+  const last=wave[wave.length-1].t;
+  for (let i=wave.length-1;i>0;i--){
+    const a=wave[i-1], b=wave[i];
+    if (last-b.t>24*HOUR) break;
+    if (b.t-a.t>10*60e3 || Math.abs(b.v-a.v)<=30) continue;
+    // nach dem Sprung nicht zurueckgekehrt?
+    const back=wave.slice(i).some(d=>Math.abs(d.v-a.v)<=12);
+    if (back) continue;
+    const exp=modelWaveAt(coll,last)-modelWaveAt(coll,a.t);
+    if (isFinite(exp) && Math.abs(exp)<15)
+      return {t:b.t, from:a.v, to:wave[wave.length-1].v};
+  }
+  return null;
+}
+
 /* ---------- Prognose ---------- */
 // Jeder Messwert wird um seine eigene Laufzeit vorwärts abgebildet. Weil die
 // Laufzeit am Abfluss hängt und Türkheim in Stufen meldet, sind die Ankünfte
@@ -1256,6 +1288,13 @@ function updateStatus(){
   document.getElementById('note').textContent=txt;
 
   const b=[];
+  if (DATA.fault){
+    const f=DATA.fault;
+    b.push(`<div class="banner warn">Messfehler vermutet: Die Wellensonde springt um
+      ${stamp(f.t)} von ${f.from.toFixed(0)} auf ${f.to.toFixed(0)} cm, obwohl sich am Wasser
+      nichts geändert hat. Die Werte ab da werden ignoriert, angezeigt wird der letzte plausible
+      Messwert.</div>`);
+  }
   if (lastS&&lastS.seba>=SEBA_WARN){
     const p=lastG?seePct(lastG.see):NaN;
     let z=`<div class="banner warn">Vorwarnung: Sebastianskapelle bei ${lastS.seba.toFixed(1)} m³/s
@@ -1325,11 +1364,13 @@ async function boot(){
     return;
   }
   try{
+    const fault=detectSensorFault(wave,coll);
+    if (fault) wave=wave.filter(d=>d.t<fault.t);
     const lw=wave.length?wave[wave.length-1].t:0;
     const lc=coll.length?coll[coll.length-1].t:0;
     const ref=Math.max(lw,lc);
     if (!ref) throw new Error('keine verwertbaren Zeitstempel');
-    DATA={coll,wave,fc:buildForecast(coll,wave,ref),ref};
+    DATA={coll,wave,fc:buildForecast(coll,wave,ref),ref,fault};
     buildFwdOptions(fullReachH(DATA.fc,ref));
     updateStatus();
     render();

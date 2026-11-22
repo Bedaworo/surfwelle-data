@@ -1,0 +1,27 @@
+name: Push test message
+
+# Manuell starten (Actions -> "Push test message" -> Run workflow):
+# schickt eine Testnachricht an die Geraete in der Repo-Variable
+# PUSH_ALLOWLIST (Kennungen wie auf der Seite angezeigt, kommagetrennt).
+# Ohne PUSH_ALLOWLIST wird nichts verschickt.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v5
+      - name: Send test push
+        run: |
+          npm install --omit=dev --no-audit --no-fund --silent
+          node notify.js --test --dry-run --state /tmp/state.json --log /tmp/log.jsonl
+        env:
+          PUSH_ALLOWLIST: ${{ vars.PUSH_ALLOWLIST }}
+          PUSH_ADMIN_TOKEN: ${{ secrets.PUSH_ADMIN_TOKEN }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}

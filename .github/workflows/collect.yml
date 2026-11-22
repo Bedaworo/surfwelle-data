@@ -78,14 +78,24 @@ jobs:
           slice data/collected.csv        data/recent.csv        350
           slice data/surfwelle_manual.csv data/recent_swell.csv 1100
 
-      - name: Push notifications (Probebetrieb)
+      - name: Push notifications
         # notify.js rechnet mit forecast.js dieselbe Prognose wie die Seite.
-        # Im Probebetrieb wird nichts verschickt - nur protokolliert in
-        # data/notify_log.jsonl, was gesendet wuerde. Node ist auf dem
-        # Ubuntu-Runner vorinstalliert. Darf den Datenlauf nie blockieren.
-        run: node notify.js --dry-run
+        # Verschickt wird nur, wenn die Repo-Variable PUSH_LIVE = true ist,
+        # sonst Probebetrieb (nur Protokoll in data/notify_log.jsonl).
+        # PUSH_ALLOWLIST beschraenkt den Versand auf einzelne Geraete.
+        # Push-Adressen erscheinen nie im (oeffentlichen) Log, nur Zaehlungen.
+        # Darf den Datenlauf nie blockieren.
+        run: |
+          npm install --omit=dev --no-audit --no-fund --silent
+          node notify.js
+        env:
+          PUSH_LIVE: ${{ vars.PUSH_LIVE }}
+          PUSH_ALLOWLIST: ${{ vars.PUSH_ALLOWLIST }}
+          PUSH_ADMIN_TOKEN: ${{ secrets.PUSH_ADMIN_TOKEN }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 3
 
       - name: Commit and push CSV
         run: |

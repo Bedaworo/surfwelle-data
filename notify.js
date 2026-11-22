@@ -22,7 +22,15 @@
  *                     "🌊🏄🏼⭐ übermorgen zu 70 %"
  * Alle Wellenwerte laufen vorher durch den Sondenfehler-Filter.
  *
+ * Versand: nur wenn die Repo-Variable PUSH_LIVE = true ist (sonst
+ * Probebetrieb). PUSH_ALLOWLIST (Kennungen, kommagetrennt, die ersten 8
+ * Zeichen wie auf der Seite angezeigt) beschränkt den Versand auf diese
+ * Geräte - zum Testen. Datenschutz: Push-Adressen werden nur im Speicher
+ * verarbeitet, nie geschrieben oder ausgegeben (die Actions-Logs sind
+ * öffentlich) - nur Zählungen.
+ *
  * Aufruf: node notify.js [--dry-run] [--now 2026-11-22T07:05:00+01:00]
+ *         node notify.js --test     (Testnachricht an PUSH_ALLOWLIST)
  */
 'use strict';
 const fs = require('fs');
@@ -42,7 +50,11 @@ const WARN_REPEAT_PP = 20;             // erneute Vorwarnung ab +20 Prozentpunkt
 const MIN = 60e3;
 
 const arg = n => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : null; };
-const DRY = !process.argv.includes('--live');
+const TEST = process.argv.includes('--test');
+const DRY = process.argv.includes('--dry-run') || process.env.PUSH_LIVE !== 'true';
+const WORKER = process.env.PUSH_WORKER_URL || 'https://surfwelle-push.schweyerbenjamin.workers.dev';
+const ALLOW = (process.env.PUSH_ALLOWLIST || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+const STAR_OPTS = [1, 2, 3], P_OPTS = [50, 60, 70, 80, 90];
 const NOW = arg('--now') ? Date.parse(arg('--now')) : Date.now();
 
 const stars = cm => cm >= 75 ? 3 : cm >= 65 ? 2 : cm >= F.SURF_CM ? 1 : 0;
@@ -155,34 +167,96 @@ if (DAILY_HOURS.includes(hNow) && state.daily[hNow] !== dayKeyNow) {
 
 /* ---------- 4: Vorwarnung ---------- */
 // Trockenphase: letzter surfbarer Slot (serverseitig, gefiltert) liegt
-// mindestens 3 Tage zurück. Im Probebetrieb mit den offensten Schwellen
-// (ab ⭐, ab 50 %) - die Nutzer-Filter greifen später beim Versand.
+// mindestens 3 Tage zurück. Berechnet wird je Einstellungs-Kombination
+// (Sterne x Wahrscheinlichkeit = 15 Profile) - so bleibt der Merker im
+// öffentlichen Repo anonym: er sagt nur "Profil ⭐⭐/70 % für den 25.11.
+// gemeldet", nicht wem.
 let lastSlotEnd = 0;
 try { lastSlotEnd = Date.parse(JSON.parse(fs.readFileSync(path.join(DATA, 'last_surf_slot.json'), 'utf8')).end) || 0; } catch (e) {}
 const dry = NOW - lastSlotEnd >= DRY_DAYS * 86400e3;
-state.warn = state.warn || {};
-for (const k of Object.keys(state.warn)) if (k < dayKeyNow) delete state.warn[k];
+if (!state.warn || !state.warn['1|50'] && Object.keys(state.warn).some(k => /^\d{4}-/.test(k))) state.warn = {};
+for (const prof of Object.keys(state.warn))
+  for (const k of Object.keys(state.warn[prof])) if (k < dayKeyNow) delete state.warn[prof][k];
 if (dry && inSurfWindow(NOW) && ol && !ol.err) {
-  // Nur der FRÜHESTE Tag, der die Schwellen erreicht - sonst kämen bei einer
-  // nassen Woche sechs Nachrichten auf einmal. Wurde er schon gemeldet, kommt
-  // erst bei +20 Prozentpunkten eine neue Nachricht.
-  const day = ol.info.find(x => x.key > dayKeyNow && !x.past && x.p >= 0.5 && stars(waveOfQ(x.q)) >= 1);
-  if (day) {
+  for (const ms of STAR_OPTS) for (const mp of P_OPTS) {
+    const prof = `${ms}|${mp}`;
+    const st = state.warn[prof] = state.warn[prof] || {};
+    // Nur der FRÜHESTE Tag, der die Schwellen erreicht - sonst kämen bei einer
+    // nassen Woche sechs Nachrichten auf einmal. Wurde er schon gemeldet, kommt
+    // erst bei +20 Prozentpunkten eine neue Nachricht.
+    const day = ol.info.find(x => x.key > dayKeyNow && !x.past && x.p * 100 >= mp && stars(waveOfQ(x.q)) >= ms);
+    if (!day) continue;
     const s = stars(waveOfQ(day.q));
     const pct = Math.round(day.p * 100);
-    const prev = state.warn[day.key];
-    if (prev === undefined || pct >= prev + WARN_REPEAT_PP) {
-      state.warn[day.key] = pct;
-      const n = Math.round((Date.parse(day.key + 'T12:00:00Z') - Date.parse(dayKeyNow + 'T12:00:00Z')) / 86400e3);
-      const when = n === 1 ? 'morgen' : n === 2 ? 'übermorgen' : `in ${n} Tagen`;
-      emit('warn', `🌊🏄🏼${starStr(s)} ${when} zu ${pct} %`, { day: day.key, p: pct, stars: s });
+    const prev = st[day.key];
+    if (prev !== undefined && pct < prev + WARN_REPEAT_PP) continue;
+    st[day.key] = pct;
+    const n = Math.round((Date.parse(day.key + 'T12:00:00Z') - Date.parse(dayKeyNow + 'T12:00:00Z')) / 86400e3);
+    const when = n === 1 ? 'morgen' : n === 2 ? 'übermorgen' : `in ${n} Tagen`;
+    emit('warn', `🌊🏄🏼${starStr(s)} ${when} zu ${pct} %`, { profile: prof, day: day.key, p: pct, stars: s });
+  }
+}
+
+/* ---------- Versand ---------- */
+// Welche Nachrichten bekommt ein Gerät mit diesen Einstellungen?
+function messagesFor(set) {
+  const out = [];
+  for (const e of events) {
+    if (e.type === 'daily' && set.daily.on && set.daily.hour === e.hour && e.stars >= set.daily.minStars)
+      out.push({ e, tag: 'daily', ttl: 4 * 3600, urgency: 'normal' });
+    else if ((e.type === 'start' || e.type === 'stop') && set.run.on)
+      out.push({ e, tag: 'run', ttl: 3600, urgency: 'high' });
+    else if (e.type === 'warn' && set.warn.on && e.profile === `${set.warn.minStars}|${set.warn.minP}`)
+      out.push({ e, tag: 'warn', ttl: 12 * 3600, urgency: 'normal' });
+  }
+  return out;
+}
+
+async function deliver() {
+  const token = process.env.PUSH_ADMIN_TOKEN;
+  const pub = process.env.VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY;
+  if (!token || !pub || !priv) { console.log('Versand übersprungen: Secrets fehlen'); return; }
+  const webpush = require('web-push');
+  webpush.setVapidDetails('https://bedaworo.github.io/surfwelle-data/', pub, priv);
+  const r = await fetch(WORKER + '/list', { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) { console.log('Anmeldungen nicht abrufbar: HTTP ' + r.status); return; }
+  let subs = (await r.json()).subs || [];
+  if (TEST && !ALLOW.length) { console.log('Testnachricht nur mit PUSH_ALLOWLIST - abgebrochen'); return; }
+  if (ALLOW.length) subs = subs.filter(x => ALLOW.some(a => x.id.startsWith(a)));
+  let sent = 0, failed = 0;
+  const gone = [];
+  for (const x of subs) {
+    const msgs = TEST
+      ? [{ e: { text: '🌊 Testnachricht der Surfwelle – Benachrichtigungen funktionieren.' }, tag: 'test', ttl: 3600, urgency: 'high' }]
+      : messagesFor(x.settings);
+    for (const m of msgs) {
+      try {
+        await webpush.sendNotification(x.sub,
+          JSON.stringify({ title: 'Surfwelle Augsburg', body: m.e.text, tag: m.tag, url: './' }),
+          { TTL: m.ttl, urgency: m.urgency });
+        sent++;
+      } catch (err) {
+        if (err.statusCode === 404 || err.statusCode === 410) { gone.push(x.id); break; }
+        failed++;
+      }
     }
   }
+  if (gone.length) {
+    await fetch(WORKER + '/remove', { method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: gone }) });
+  }
+  // Nur Zählungen ausgeben - die Logs sind öffentlich
+  console.log(`Versand: ${subs.length} Anmeldungen, ${sent} gesendet, ${failed} Fehler, ${gone.length} abgelaufen entfernt`);
 }
 
 /* ---------- Abschluss ---------- */
 state.lastRun = new Date(NOW).toISOString();
 saveState(state);
 appendLog(events);
-for (const e of events) console.log(`[${e.type}] ${e.text}`);
+const counts = {};
+for (const e of events) { const k = `[${e.type}] ${e.text}`; counts[k] = (counts[k] || 0) + 1; }
+for (const [k, n] of Object.entries(counts)) console.log(n > 1 ? `${k}  (${n} Profile)` : k);
 if (!events.length) console.log('keine Nachricht fällig');
+const due = events.some(e => e.type !== 'daily-skip');
+if (TEST || (!DRY && due)) deliver().catch(e => { console.log('Versandfehler: ' + e.message); process.exitCode = 1; });

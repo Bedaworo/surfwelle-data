@@ -116,6 +116,25 @@ option{background:var(--deep); color:var(--foam); font-weight:400}
   border-top:1px solid rgba(73,80,87,.5); padding-top:9px; margin-bottom:22px}
 .skill b{color:var(--foam); font-weight:600}
 
+/* Benachrichtigungen */
+.push{border:1px solid var(--line); border-radius:var(--r); padding:14px 15px 15px;
+  margin-bottom:26px; background:var(--deep)}
+.push h2{margin:0 0 4px}
+.push .row{display:flex; align-items:center; gap:10px 14px; flex-wrap:wrap;
+  padding:10px 0; border-top:1px solid rgba(73,80,87,.5)}
+.push .row:first-of-type{border-top:0}
+.push .sw{display:inline-flex; align-items:center; gap:8px; cursor:pointer; min-width:210px; font-weight:500}
+.push .sw input{accent-color:var(--water); width:18px; height:18px; margin:0}
+@media(max-width:520px){.push .sw{flex-basis:100%}}
+.push .opt{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--mute)}
+.push .opt select{padding:3px 24px 3px 8px; font-size:12px}
+.push .row.off .opt{opacity:.4; pointer-events:none}
+.push .ex{font-size:12px; color:var(--mute); flex-basis:100%; margin-left:26px; margin-top:-4px}
+.push .pstat{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--mute); margin-top:8px}
+.push .pstat.err{color:var(--amber)}
+.push .phint{font-size:12.5px; color:var(--mute); margin-top:6px}
+.push .phint a{color:var(--water)}
+
 /* 7-Tage-Aussicht */
 .outlook{border:1px solid var(--line); border-radius:var(--r); padding:14px 15px 15px;
   margin-bottom:26px; background:var(--deep)}
@@ -269,6 +288,35 @@ footer a:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
   </div>
   <div class="odays" id="odays"></div>
   <div class="overdict" id="overdict"></div>
+</div>
+
+<div class="push" id="push">
+  <h2>Benachrichtigungen</h2>
+  <div class="phint" id="pHint">Lass dich direkt im Browser benachrichtigen – ohne App. Jede Nachricht einzeln ein- und ausschaltbar.</div>
+  <div class="row" data-k="daily">
+    <label class="sw"><input type="checkbox" id="pDaily"> Tagesprognose</label>
+    <span class="opt">um <select id="pDailyHour">
+      <option value="4">4 Uhr</option><option value="5">5 Uhr</option><option value="6" selected>6 Uhr</option>
+      <option value="7">7 Uhr</option><option value="8">8 Uhr</option></select></span>
+    <span class="opt">ab <select id="pDailyStars">
+      <option value="1">⭐</option><option value="2">⭐⭐</option><option value="3">⭐⭐⭐</option></select></span>
+    <span class="ex">z. B. „🌊🏄🏼⭐⭐ heute zu 87 %“ – wenn die Welle heute voraussichtlich mindestens 1 Stunde läuft</span>
+  </div>
+  <div class="row" data-k="run">
+    <label class="sw"><input type="checkbox" id="pRun"> Welle läuft / läuft nicht</label>
+    <span class="ex">„🌊🏄🏼⭐ läuft“ und „🌊😢 läuft nicht“ – nur 8–20 Uhr</span>
+  </div>
+  <div class="row" data-k="warn">
+    <label class="sw"><input type="checkbox" id="pWarn"> Vorwarnung nach Trockenphase</label>
+    <span class="opt">ab <select id="pWarnStars">
+      <option value="1">⭐</option><option value="2">⭐⭐</option><option value="3">⭐⭐⭐</option></select></span>
+    <span class="opt">ab <select id="pWarnP">
+      <option value="50">50 %</option><option value="60">60 %</option><option value="70">70 %</option>
+      <option value="80">80 %</option><option value="90">90 %</option></select></span>
+    <span class="ex">z. B. „🌊🏄🏼⭐ übermorgen zu 70 %“ – nach mindestens 3 Tagen ohne Welle</span>
+  </div>
+  <div class="pstat" id="pStat"></div>
+  <div class="phint">Gespeichert wird nur eine anonyme Push-Adresse deines Browsers mit diesen Einstellungen – kein Name, keine E-Mail. Mehr in der <a href="datenschutz.html">Datenschutzerklärung</a>.</div>
 </div>
 
 <div class="explain">
@@ -945,6 +993,101 @@ function updateStatus(){
   }
   document.getElementById('banners').innerHTML=b.join('');
 }
+
+/* ---------- Benachrichtigungen (Web-Push) ---------- */
+// Anmeldung im Browser, Speicherung beim Cloudflare Worker, Versand durch
+// notify.js in GitHub Actions. Alles aus = Abmeldung (Worker löscht).
+const PUSH_WORKER='https://surfwelle-push.schweyerbenjamin.workers.dev';
+const VAPID_PUBLIC='BKWtvutcbdawuE500MbcCXKC1SIxt3QsfNw5PXPFd07WZo1v89QS4i2qXcYK1JOM_zEyjxUMNHoRCgehEVrm7Cw';
+const LS_PUSH='surfwelle_push_v1';
+const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const isStandalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const pushSupported='serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const $p=id=>document.getElementById(id);
+function pushStat(msg,err){ const el=$p('pStat'); el.textContent=msg; el.classList.toggle('err',!!err); }
+function readPushUI(){
+  return {daily:{on:$p('pDaily').checked, hour:+$p('pDailyHour').value, minStars:+$p('pDailyStars').value},
+          run:{on:$p('pRun').checked},
+          warn:{on:$p('pWarn').checked, minStars:+$p('pWarnStars').value, minP:+$p('pWarnP').value}};
+}
+function writePushUI(s){
+  if (!s) return;
+  $p('pDaily').checked=!!s.daily.on; $p('pDailyHour').value=s.daily.hour; $p('pDailyStars').value=s.daily.minStars;
+  $p('pRun').checked=!!s.run.on;
+  $p('pWarn').checked=!!s.warn.on; $p('pWarnStars').value=s.warn.minStars; $p('pWarnP').value=s.warn.minP;
+}
+function dimRows(){
+  document.querySelectorAll('#push .row').forEach(r=>{
+    const cb=r.querySelector('input[type=checkbox]'); r.classList.toggle('off',!cb.checked);
+  });
+}
+const b64ToU8=b=>{const p='='.repeat((4-b.length%4)%4);const r=atob((b+p).replace(/-/g,'+').replace(/_/g,'/'));
+  return Uint8Array.from([...r].map(c=>c.charCodeAt(0)));};
+async function idOfEndpoint(ep){
+  const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ep));
+  return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function getReg(){
+  return (await navigator.serviceWorker.getRegistration('./'))||navigator.serviceWorker.register('sw.js',{scope:'./'});
+}
+let pushBusy=false;
+async function savePush(){
+  if (pushBusy) return; pushBusy=true;
+  const s=readPushUI(); dimRows();
+  const any=s.daily.on||s.run.on||s.warn.on;
+  // Erlaubnis sofort im Klick anfragen - Safari verlangt das ohne vorheriges await
+  const permP=any&&Notification.permission==='default'?Notification.requestPermission():null;
+  try{
+    const reg=await getReg();
+    let sub=await reg.pushManager.getSubscription();
+    if (!any){
+      if (sub){
+        await fetch(PUSH_WORKER+'/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({endpoint:sub.endpoint})});
+        await sub.unsubscribe();
+      }
+      try{ localStorage.removeItem(LS_PUSH); }catch(e){}
+      pushStat('Benachrichtigungen aus – Anmeldung gelöscht.');
+      return;
+    }
+    if (Notification.permission!=='granted'){
+      const perm=permP?await permP:Notification.permission;
+      if (perm!=='granted'){
+        writePushUI({daily:{...s.daily,on:false},run:{on:false},warn:{...s.warn,on:false}}); dimRows();
+        pushStat('Benachrichtigungen wurden im Browser nicht erlaubt.',true); return;
+      }
+    }
+    if (!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:b64ToU8(VAPID_PUBLIC)});
+    const r=await fetch(PUSH_WORKER+'/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({subscription:sub.toJSON(),settings:s})});
+    if (!r.ok) throw new Error('Server '+r.status);
+    try{ localStorage.setItem(LS_PUSH,JSON.stringify(s)); }catch(e){}
+    const id=(await idOfEndpoint(sub.endpoint)).slice(0,8);
+    pushStat(`Gespeichert – aktiv auf diesem Gerät (Kennung ${id}).`);
+  }catch(e){
+    pushStat('Speichern fehlgeschlagen: '+e.message,true);
+  }finally{ pushBusy=false; }
+}
+async function initPush(){
+  if (!pushSupported){
+    if (isIOS && !isStandalone)
+      $p('pHint').innerHTML='Auf dem iPhone/iPad funktionieren Benachrichtigungen nur, wenn du die Seite über <b>Teilen → Zum Home-Bildschirm</b> hinzufügst und von dort öffnest (ab iOS 16.4).';
+    else $p('pHint').textContent='Dieser Browser unterstützt keine Push-Benachrichtigungen.';
+    document.querySelectorAll('#push .row').forEach(r=>r.style.display='none');
+    return;
+  }
+  let saved=null; try{ saved=JSON.parse(localStorage.getItem(LS_PUSH)||'null'); }catch(e){}
+  writePushUI(saved); dimRows();
+  try{
+    const reg=await navigator.serviceWorker.getRegistration('./');
+    const sub=reg&&await reg.pushManager.getSubscription();
+    if (sub&&saved) pushStat(`Aktiv auf diesem Gerät (Kennung ${(await idOfEndpoint(sub.endpoint)).slice(0,8)}).`);
+    else if (saved&&!sub){ writePushUI({daily:{...saved.daily,on:false},run:{on:false},warn:{...saved.warn,on:false}}); dimRows(); }
+    if (Notification.permission==='denied') pushStat('Benachrichtigungen sind für diese Seite im Browser gesperrt.',true);
+  }catch(e){}
+  document.querySelectorAll('#push input, #push select').forEach(el=>el.addEventListener('change',savePush));
+}
+initPush();
 
 /* ---------- Start ---------- */
 function fail(title,detail){

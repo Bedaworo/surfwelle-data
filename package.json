@@ -1,0 +1,8 @@
+{
+  "name": "surfwelle-notify",
+  "private": true,
+  "description": "Push-Versand fuer notify.js (GitHub Actions)",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}

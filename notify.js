@@ -221,8 +221,15 @@ async function deliver() {
   const r = await fetch(WORKER + '/list', { headers: { Authorization: 'Bearer ' + token } });
   if (!r.ok) { console.log('Anmeldungen nicht abrufbar: HTTP ' + r.status); return; }
   let subs = (await r.json()).subs || [];
-  if (TEST && !ALLOW.length) { console.log('Testnachricht nur mit PUSH_ALLOWLIST - abgebrochen'); return; }
-  if (ALLOW.length) subs = subs.filter(x => ALLOW.some(a => x.id.startsWith(a)));
+  if (TEST) {
+    // Ziel der Testnachricht: Eingabe beim manuellen Start (Kennungen oder "alle")
+    const t = (process.env.PUSH_TEST_TARGET || '').trim().toLowerCase();
+    if (!t) { console.log('Testnachricht: keine Kennung angegeben - abgebrochen'); return; }
+    if (t !== 'alle') {
+      const ids = t.split(',').map(x => x.trim()).filter(Boolean);
+      subs = subs.filter(x => ids.some(a => x.id.startsWith(a)));
+    }
+  } else if (ALLOW.length) subs = subs.filter(x => ALLOW.some(a => x.id.startsWith(a)));
   let sent = 0, failed = 0;
   const gone = [];
   for (const x of subs) {

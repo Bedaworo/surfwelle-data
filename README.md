@@ -10,49 +10,108 @@ Surfwelle am Senkelbach in Augsburg, um eine Pegel-Prognose zu bauen.
 Zweistufiges Modell: Türkheim → geschätzter Fabrikkanal-Abfluss (Kennlinie aus
 322 Tagen echter Kanaldaten) → Wellenhöhe. Die Laufzeit zwischen den Stationen
 ist **abflussabhängig** — bei wenig Wasser fließt es langsamer — und folgt in
-jedem Flussabschnitt demselben Potenzgesetz `T = T₁₀ · (Q/10)^-b`, gemessen an
-sechs Kaskadenstufen von Sebastianskapelle bis zur Welle.
+jedem Flussabschnitt demselben Potenzgesetz `T = T₁₀ · (Q/10)^-b`.
 
 Das Modell **kalibriert sich laufend selbst**: aus dem Abgleich der letzten
 Stunde, sechs Stunden und drei Tage mit den echten Wellenmessungen ergibt sich
-ein Korrekturwert, der automatisch nachgeführt wird — keine feste Konstante.
+ein Korrekturwert, der automatisch nachgeführt wird.
 
 Enthalten:
-- **Rückblick/Ausblick** einzeln wählbar (1 h bis 72 h zurück, 1 h bis 24 h
-  voraus), inklusive Anzeige der Schätzgüte (mittlere Abweichung, Trefferquote
-  der Surfbar-Entscheidung) im jeweils sichtbaren Fenster
-- **Zweiter Ausblick-Ast über Sebastianskapelle** an der jungen Wertach —
-  reicht weiter voraus als Türkheim allein, ist aber relativ zum aktuellen
-  Türkheim-Stand verankert (die Jahres-Kennlinie zwischen beiden Pegeln
-  überschätzt sonst in Trockenphasen deutlich)
-- **Grüntensee-Füllstand in Prozent** der Bewirtschaftungslamelle
-  (875,50–876,50 m ü. NN) als Kontext, wie viel Puffer der Speicher noch hat
-- **7-Tage-Regenaussicht** mit zwei Kacheln — *frühestens möglich* und
-  *wahrscheinlichster Tag* — samt Tagesstreifen mit Regenmenge und
-  Eintreffwahrscheinlichkeit; berücksichtigt, dass die Welle nur von 8 bis
-  20 Uhr gesurft werden darf
-- Sensor-Ausreißer-Filter für die angezeigte Wellenkurve (siehe
-  `fetch_swell.py` unten — dieselbe Filterlogik läuft serverseitig)
+- **Status** mit Emojis (🏄🏼 und ⭐–⭐⭐⭐ nach den Farbstufen 57/65/75 cm)
+- **Rückblick/Ausblick** einzeln wählbar (0 h bis 72 h zurück; voraus 0 h bis
+  zur aktuell möglichen Reichweite der Pegel), Linien per Häkchen ein-/
+  ausblendbar, Schätzgüte (mittlere Abweichung, Trefferquote) im sichtbaren
+  Fenster
+- **Fernpfad über Haslach** (Abfluss direkt unter dem Grüntensee): Was der See
+  gerade mehr oder weniger abgibt, kommt ~13 h später 1:1 in Türkheim an
+  (`HAS2TUE_T`, kalibriert an 42 Abgabestufen). Im Backtest genauer als der
+  frühere Pfad über Sebastianskapelle, der nur noch als Vorwarnung dient.
+- **Grüntensee-Füllstand**: 100 % = Stauziel 876,05 m ü. NN (aus Tageswerten
+  1969–2026: nach jedem Hochwasser kehrt der See dorthin zurück), 0 % =
+  875,50 m. Darüber wird der **Überstau** in cm angezeigt; ab spürbarer
+  Zusatzabgabe meldet ein Hinweis, wie viel und wie lange der See noch abgibt.
+- **7-Tage-Aussicht** mit Tageskacheln (🌧️ ab 1/5/10 mm Gebietsregen, 🏄🏼 ab
+  50 % Wahrscheinlichkeit, ⭐ nach erwarteter Höhe); läuft die Welle gerade,
+  zeigen die großen Kacheln „Läuft gerade“ und „Surfbar voraussichtlich bis“
+- **Sondenfehler-Filter**: Messwerte, die mehr als 35 cm vom aus Türkheim
+  erwarteten Wert abweichen *und* zappeln (Fehlermodus der Wellensonde),
+  werden verworfen und als Hinweis angezeigt — im Browser und serverseitig
+  (`sensor_filter.py`) mit identischer Logik
+- **Push-Benachrichtigungen** ohne App, siehe unten
+- Kacheln „Letzter surfbarer Slot“ und „Surfbar (letzte 365 Tage)“,
+  serverseitig vorberechnet
 
-Zieht sich die Daten aus `data/recent.csv` und `data/recent_swell.csv` in
-diesem Repo (kleine, vom Workflow bei jedem Lauf neu geschriebene Ausschnitte
-— die Volldateien sind inzwischen zu groß für Live-Abrufe im Browser).
+Die Seite lädt nur Dateien aus diesem Repo (`data/recent.csv`,
+`data/recent_swell.csv` und die vorberechneten JSON-Dateien); Schriften und
+Chart.js liegen unter `assets/` — es werden keine Drittanbieter kontaktiert.
+Impressum und Datenschutzerklärung: `impressum.html`, `datenschutz.html`.
+
+### Aufbau des Codes
+
+| Datei | Aufgabe |
+|---|---|
+| `forecast.js` | Rechenkern: Kennlinien, Laufzeiten, Einlesen, Sondenfehler-Filter, Stundenprognose, 7-Tage-Aussicht. Wird von der Seite **und** von `notify.js` genutzt — Änderungen an der Prognose gehören hierher |
+| `index.html` | Anzeige, Diagramm, Bedienung, Push-Einstellungen |
+| `sw.js` | Service Worker — zeigt Push-Nachrichten an |
+| `notify.js` | Push-Logik und Versand (läuft im 15-Minuten-Workflow) |
+| `worker/worker.js` | Cloudflare Worker für die Push-Anmeldungen (Kopie zur Dokumentation) |
+| `sensor_filter.py` | Sondenfehler-Filter für `fetch_swell.py` und `compute_surf_stats.py` |
+
+## 🔔 Push-Benachrichtigungen
+
+Jeder Besucher kann sich im Bereich „Benachrichtigungen“ anmelden (am iPhone
+nur über „Zum Home-Bildschirm“, ab iOS 16.4). Einzeln schaltbar:
+
+| Nachricht | Auslöser | Einstellbar |
+|---|---|---|
+| Tagesprognose „🌊🏄🏼⭐⭐ heute zu 87 %“ | Welle heute voraussichtlich ≥ 1 h am Stück ≥ 57 cm (8–20 Uhr), Wahrscheinlichkeit > 50 % | Uhrzeit 4–8 Uhr, ab ⭐/⭐⭐/⭐⭐⭐ |
+| „🌊🏄🏼⭐ läuft“ / „🌊😢 läuft nicht“ | 15 min ≥ 57 cm (frühestens 1 h nach dem letzten Start) bzw. 30 min < 57 cm, nur 8–20 Uhr | an/aus (gemeinsam) |
+| Vorwarnung „🌊🏄🏼⭐ übermorgen zu 70 %“ | nach ≥ 3 Tagen ohne surfbaren Slot; frühester passender Tag, erneut erst bei +20 Prozentpunkten | ab Sternen, ab 50–90 % |
+
+Ablauf: Browser → **Cloudflare Worker** `surfwelle-push` (speichert Push-Adresse
++ Einstellungen in Workers KV, Speicherort EU) → `notify.js` in GitHub Actions
+holt die Anmeldungen bei Bedarf ab und verschickt per Web-Push (VAPID).
+
+**Datenschutz:** Push-Adressen landen nie im (öffentlichen) Repo oder in den
+Actions-Logs, nur Zählungen. Der Merker `data/notify_state.json` speichert je
+Einstellungs-Kombination, nicht je Gerät. `data/notify_log.jsonl` protokolliert
+nur die Nachrichtentexte.
+
+**Steuerung** (Settings → Secrets and variables → Actions):
+
+| Name | Art | Zweck |
+|---|---|---|
+| `PUSH_LIVE` | Variable | `true` = Versand aktiv, sonst nur Protokoll (Probebetrieb) |
+| `PUSH_ALLOWLIST` | Variable | optional: Versand nur an diese Geräte-Kennungen (kommagetrennt) |
+| `PUSH_ADMIN_TOKEN` | Secret | Zugang zum Worker (gleicher Wert wie `ADMIN_TOKEN` dort) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Secret | Schlüsselpaar für Web-Push; der öffentliche steht auch in `index.html` |
+
+Testnachricht: **Actions → „Push test message“ → Run workflow**, Kennung des
+Geräts eintragen (steht auf der Seite unter den Benachrichtigungen) oder `alle`.
 
 ## Was wird gesammelt
 
 ### Pegelkette Wertach (von der Quelle bis Augsburg)
 
-| Quelle | Daten | Fluss-km | Bedeutung |
-|---|---|---|---|
-| HND Bayern | Sebastianskapelle / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~155 | Junge Wertach, oberhalb Grüntensee |
-| HND Bayern | Grüntensee Seepegel — Wasserstand (m ü. NN) | ~130 | Pufferspeicher, Bewirtschaftungslamelle 875,50–876,50 m |
-| HND Bayern | Haslach Werksabfluss / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~128 | Gesteuerte Kraftwerksausleitung direkt unterhalb Grüntensee |
-| HND Bayern | Thalhofen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~95 | Zwischenstufe vor Biessenhofen |
-| HND Bayern | Biessenhofen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~80 | Nach Speicher, vor Mittellauf |
-| HND Bayern | Wertach (Ortspegel) — Abfluss (m³/s) + Wasserstand (cm) | ~55 | Mittellauf |
-| HND Bayern | Türkheim / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~42 | Hauptsignal kurz vor Augsburg |
-| HND Bayern | Augsburg-Oberhausen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | ~3 | Mutterbett, nach Fabrikkanal-Abzweig |
-| HND Bayern | Singold / Langerringen — Abfluss (m³/s) + Wasserstand (cm) | — | Mündet erst **hinter** der Fabrikkanal-Messung in den Senkelbach; für die Wasserbilanz zur Welle also nachrangig |
+| Quelle | Daten | Bedeutung |
+|---|---|---|
+| HND Bayern | Sebastianskapelle / Wertach — Abfluss (m³/s) + Wasserstand (cm) | Junge Wertach, **oberhalb** des Grüntensees (Fluss-km 128,0; 60,6 km²) — Regen-Frühindikator |
+| HND Bayern | Grüntensee Seepegel — Wasserstand (m ü. NN) | Speicher (Fluss-km ~123,2), Stauziel ~876,05 m; darüber Hochwasserrückhalt |
+| HND Bayern | Haslach Werksabfluss / Wertach — Abfluss (m³/s) + Wasserstand (cm) | Gesamtabgabe direkt unter dem Damm (Fluss-km 122,95) — Basis des Fernpfads |
+| HND Bayern | Thalhofen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | Zwischenstufe vor Biessenhofen |
+| HND Bayern | Biessenhofen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | Nach Speicher, vor Mittellauf |
+| HND Bayern | Wertach (Ortspegel) — Abfluss (m³/s) + Wasserstand (cm) | Mittellauf |
+| HND Bayern | Türkheim / Wertach — Abfluss (m³/s) + Wasserstand (cm) | Hauptsignal kurz vor Augsburg |
+| HND Bayern | Augsburg-Oberhausen / Wertach — Abfluss (m³/s) + Wasserstand (cm) | Mutterbett, nach Fabrikkanal-Abzweig |
+| HND Bayern | Singold / Langerringen — Abfluss (m³/s) + Wasserstand (cm) | Mündet erst **hinter** der Fabrikkanal-Messung in den Senkelbach; für die Wasserbilanz zur Welle also nachrangig |
+
+**Grüntensee-Bilanz** (Tageswerte 2024–2026): Abfluss Haslach ≈ 1,25 ×
+Sebastianskapelle − Seefläche × Seeänderung, effektive Seefläche
+1,13–1,20 km² (R² = 0,85). Haslach erfasst damit auch die
+Hochwasserabgabe. Bei Hochwasser hält der See zurück und gibt danach
+stufenweise 22–28 m³/s über mehrere Tage ab; ein Tagesgang durch das
+kleine Kraftwerk (1 MW) ist nicht erkennbar. Hinweis „Rückstaubeeinflussung“
+auf der GKD-Seite: einzelne Haslach-Werte können dann ungültig sein.
 
 An allen Q+W-Stellen lässt sich pro Messstelle ein grober
 Fließgeschwindigkeits-Proxy `v_relativ = Q / W` bilden — wegen des
@@ -202,6 +261,10 @@ Im Ordner `data/` liegen mehrere CSV-Dateien mit klarer Aufgabenteilung:
 | `recent_swell.csv` | Bot, alle 15 Min | Letzte ~1100 Zeilen von `surfwelle_manual.csv` — Ausschnitt fürs Live-Chart |
 | `fabrikkanal_2025.csv` / `fabrikkanal_2026.csv` | Mensch, unregelmäßig | Fabrikkanal-Abfluss vom Kraftwerksbetreiber |
 | `events.csv` | Mensch, bei Bedarf | Bachablässe, Wehrsteuerungen, Bauarbeiten |
+| `last_surf_slot.json` | Bot, alle 15 Min | Letzter surfbarer Slot (≥ 30 min), Sondenfehler gefiltert |
+| `surf_days_365.json` | Bot, alle 15 Min | Surfbare Tage der letzten 365 Tage, Sondenfehler gefiltert |
+| `notify_state.json` | Bot, alle 15 Min | Merker der Push-Logik (je Einstellungs-Kombination, anonym) |
+| `notify_log.jsonl` | Bot, bei Ereignis | Protokoll der (ggf. nur simulierten) Push-Nachrichten |
 
 `recent.csv` und `recent_swell.csv` sind reine Ableitungen der Volldateien
 (Kopfzeile + letzte N Zeilen) — gehen sie verloren, entstehen sie beim
@@ -303,6 +366,13 @@ Zwei Dinge passieren beim Merge automatisch:
   letzten 14 Tage; `python fetch_swell.py --clean-all` geht einmalig über die
   gesamte Historie.
 
+Zusätzlich gibt es einen **Plausibilitätsfilter** (`sensor_filter.py`) für
+den Fehlermodus der Sonde, in dem sie über Stunden verrauschte 15–35 cm
+liefert, obwohl die Welle läuft (z. B. 21./22.11.2026). Er wird nur beim
+Auswerten angewendet (letzter Slot, 365-Tage-Statistik, Seite) —
+`surfwelle_manual.csv` bleibt roh. **Für künftige Kalibrierungen die
+Wellendaten zuerst durch `sensor_filter.plausible_keys()` schicken.**
+
 Für den Fall, dass die öffentliche Seite mal offline ist oder sich strukturell
 ändert, gibt es weiterhin den manuellen Fallback-Weg über einen zweiten
 Workflow (`Convert surfwelle HTML`): HTML-Datei der (ggf. login-geschützten)
@@ -334,7 +404,12 @@ Einlesen mit pandas.
 Hinweise zu Lücken:
 - GitHub Actions hat keine harte Garantie für 15-Minuten-Pünktlichkeit;
   bei hoher Plattform-Last können einzelne Läufe um 5-10 Minuten verspätet
-  oder gelegentlich gar nicht starten.
+  oder gelegentlich gar nicht starten. Deshalb stößt zusätzlich ein externer
+  Dienst (cron-job.org) den Workflow alle 15 Minuten per `workflow_dispatch`
+  an.
+- Open-Meteo liefert nicht in jedem Lauf eine Regenprognose (~18 % der Zeilen
+  leer); Seite und Push nehmen deshalb die jüngste vorhandene, höchstens 12 h
+  alte Prognose (`latestOutlook` in `forecast.js`).
 - HND-Werte sind 15-Minuten-Werte; das Skript scrapt jedes Mal die Tabelle
   und bekommt damit immer den neuesten verfügbaren Wert. Identische
   Zeitstempel in Folge sind normal und kein Fehler.
@@ -349,8 +424,10 @@ migriert die CSV (neue Spalten werden hinten angehängt, alte Zeilen
 bekommen leere Werte). Bestehende Spalten dürfen nicht umsortiert oder
 umbenannt werden, sonst greift die Auto-Migration nicht.
 
-Ändert sich dabei etwas an den Kennlinien oder Spalten, die `index.html`
+Ändert sich dabei etwas an den Kennlinien oder Spalten, die die Prognose
 nutzt (z. B. `TUE2FAB`, `FAB2WAVE`, die Potenzgesetz-Konstanten der Laufzeit
-oder die `forecast_area_rain_*`-Spalten), muss das Chart entsprechend
-nachgezogen werden — es liest die Rohdaten direkt und rechnet die
-Kalibrierung clientseitig, es gibt keine gemeinsame Konfigurationsdatei.
+oder die `forecast_area_rain_*`-Spalten), wird das an **einer** Stelle
+nachgezogen: in `forecast.js`. Seite und Push-Benachrichtigungen nutzen
+dieselbe Datei. Die Python-Seite (`sensor_filter.py`,
+`compute_surf_stats.py`) hat eigene Kopien von `TUE2FAB`/`FAB2WAVE` — dort
+ebenfalls anpassen.

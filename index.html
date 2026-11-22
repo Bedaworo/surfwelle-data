@@ -578,36 +578,66 @@ function despikeWave(raw){
   return out;
 }
 
-// Sondenfehler am Ende der Messreihe: despikeWave erkennt nur Spitzen, die
-// binnen einer Stunde zurueckkehren. Springt die Welle dagegen um mehr als
-// 30 cm in hoechstens 10 Minuten und bleibt dort, obwohl Türkheim/Fabrikkanal
-// fuer denselben Zeitraum keine Aenderung ueber 15 cm erwarten lassen, ist das
-// fast sicher die Sonde (seit Mai 2026 kein echter Sprung dieser Groesse,
-// 99,9-Perzentil der Schrittaenderung 21 cm). Gilt hoechstens 24 h lang -
-// danach wird der neue Stand als echt akzeptiert.
-function modelWaveAt(coll,t){
-  let best=null;
-  for (const d of coll){
-    if (!isFinite(d.tue)) continue;
-    if (d.t+lagHours(d.tue)*HOUR<=t) best=d; else break;
+// Sondenfehler: Die Wellensonde kippt zeitweise in einen Fehlermodus und
+// liefert dann verrauschte Werte um 15-35 cm (auch Nullen), obwohl die Welle
+// voll läuft - und springt später wieder auf den richtigen Wert. Verworfen
+// wird ein Punkt, wenn er mehr als 35 cm neben dem aus Türkheim erwarteten
+// Wert liegt UND das Signal zappelt (Median der |2. Differenz| im Fenster
+// +-30 min >= 3 cm). Echte Abweichungen durch Wehreingriffe verlaufen glatt
+// und bleiben erhalten. Gegen die Historie (Mai-Nov 2026): Fehlerphase
+// 21./22.11. zu 89 % erkannt, im Normalbetrieb kein Punkt verworfen.
+// Gleiche Logik serverseitig in sensor_filter.py.
+function filterSensorFaults(wave,coll){
+  const arr=coll.filter(d=>isFinite(d.tue))
+    .map(d=>({t:d.t+lagHours(d.tue)*HOUR, v:waveFromFab(fabFromTue(d.tue))}))
+    .sort((a,b)=>a.t-b.t);
+  if (arr.length<2||wave.length<3) return {wave, fault:null, nFlagged:0};
+  let j=0;
+  const expAt=t=>{
+    if (t<arr[0].t||t>arr[arr.length-1].t) return NaN;
+    while (j<arr.length-2 && arr[j+1].t<t) j++;
+    const a=arr[j], b=arr[j+1];
+    if (b.t-a.t>3*HOUR) return NaN;
+    return a.v+(t-a.t)/Math.max(1,b.t-a.t)*(b.v-a.v);
+  };
+  const med=x=>{const s=[...x].sort((a,b)=>a-b); return s[Math.floor(s.length/2)];};
+  const d2=wave.map((d,i)=>i<2?NaN:Math.abs(d.v-2*wave[i-1].v+wave[i-2].v));
+  let lo=0, hi=0;
+  const rough=wave.map((d,i)=>{
+    while (wave[lo].t<d.t-30*60e3) lo++;
+    while (hi<wave.length && wave[hi].t<=d.t+30*60e3) hi++;
+    const w=d2.slice(Math.max(lo,2),hi);
+    return w.length?med(w):0;
+  });
+  const keep=[], res=[], flagged=[], info=[];
+  wave.forEach((d,i)=>{
+    const e0=expAt(d.t);
+    if (!isFinite(e0)){ info.push({d, bad:false, dev:0}); return; }
+    const bias=res.length>=12?med(res.slice(-200)):BIAS_CM;
+    const exp=e0+bias, dev=d.v-exp;
+    const bad=Math.abs(dev)>35 && rough[i]>=3;
+    info.push({d, bad, dev, exp});
+    if (!bad) res.push(d.v-e0);
+  });
+  // Übergangswerte beim Umkippen der Sonde (z. B. 34 / 49 cm) mitverwerfen:
+  // über 30 cm daneben und höchstens 30 min von einem Fehlerwert entfernt.
+  const badT=info.filter(x=>x.bad).map(x=>x.d.t);
+  info.forEach(x=>{
+    if (!x.bad && Math.abs(x.dev)>30 && badT.some(t=>Math.abs(t-x.d.t)<=30*60e3)) x.bad=true;
+  });
+  for (const x of info){
+    if (x.bad) flagged.push({...x.d, exp:x.exp}); else keep.push(x.d);
   }
-  return best?waveFromFab(fabFromTue(best.tue)):NaN;
-}
-function detectSensorFault(wave,coll){
-  if (wave.length<3) return null;
-  const last=wave[wave.length-1].t;
-  for (let i=wave.length-1;i>0;i--){
-    const a=wave[i-1], b=wave[i];
-    if (last-b.t>24*HOUR) break;
-    if (b.t-a.t>10*60e3 || Math.abs(b.v-a.v)<=30) continue;
-    // nach dem Sprung nicht zurueckgekehrt?
-    const back=wave.slice(i).some(d=>Math.abs(d.v-a.v)<=12);
-    if (back) continue;
-    const exp=modelWaveAt(coll,last)-modelWaveAt(coll,a.t);
-    if (isFinite(exp) && Math.abs(exp)<15)
-      return {t:b.t, from:a.v, to:wave[wave.length-1].v};
+  const last=wave[wave.length-1];
+  const lastBad=flagged.length&&flagged[flagged.length-1].t===last.t?flagged[flagged.length-1]:null;
+  // Meldung nur, solange die Sonde gerade im Fehlermodus ist
+  let fault=null;
+  if (lastBad){
+    const lastGood=keep.length?keep[keep.length-1]:null;
+    const recent=flagged.filter(x=>x.t>last.t-HOUR);
+    fault={since:lastGood?lastGood.t:flagged[0].t, raw:med(recent.map(x=>x.v)), exp:lastBad.exp};
   }
-  return null;
+  return {wave:keep, fault, nFlagged:flagged.length};
 }
 
 /* ---------- Prognose ---------- */
@@ -816,7 +846,12 @@ function render(){
   if (to-from<HOUR) from=ref-HOUR;   // beide Umschalter auf 0 h: wenigstens 1 h zeigen
   const vis=t=>t>=from&&t<=to;
 
-  const wSeries=wave.filter(d=>vis(d.t)).map(d=>({x:d.t,y:d.v}));
+  // Lücken > 20 min (z. B. verworfene Sondenfehler) nicht überbrücken
+  const wSeries=[];
+  wave.filter(d=>vis(d.t)).forEach((d,i,a)=>{
+    if (i&&d.t-a[i-1].t>20*60e3) wSeries.push({x:a[i-1].t+60e3,y:null});
+    wSeries.push({x:d.t,y:d.v});
+  });
   const tSeries=coll.filter(d=>vis(d.t)&&isFinite(d.tue)).map(d=>({x:d.t,y:d.tue}));
   const kSeries=coll.filter(d=>vis(d.t)&&isFinite(d.tue))
                     .map(d=>({x:d.t,y:+fabFromTue(d.tue).toFixed(2)}));
@@ -1328,10 +1363,9 @@ function updateStatus(){
   const b=[];
   if (DATA.fault){
     const f=DATA.fault;
-    b.push(`<div class="banner warn">Messfehler vermutet: Die Wellensonde springt um
-      ${stamp(f.t)} von ${f.from.toFixed(0)} auf ${f.to.toFixed(0)} cm, obwohl sich am Wasser
-      nichts geändert hat. Die Werte ab da werden ignoriert, angezeigt wird der letzte plausible
-      Messwert.</div>`);
+    b.push(`<div class="banner warn">Messfehler: Die Wellensonde liefert seit ${stamp(f.since)}
+      unplausible Werte (um ${f.raw.toFixed(0)} cm, erwartet etwa ${f.exp.toFixed(0)} cm).
+      Diese Werte werden ignoriert, angezeigt wird der letzte plausible Messwert.</div>`);
   }
   if (lastS&&lastS.seba>=SEBA_WARN){
     const p=lastG?seePct(lastG.see):NaN;
@@ -1402,8 +1436,8 @@ async function boot(){
     return;
   }
   try{
-    const fault=detectSensorFault(wave,coll);
-    if (fault) wave=wave.filter(d=>d.t<fault.t);
+    const flt=filterSensorFaults(wave,coll);
+    wave=flt.wave; const fault=flt.fault;
     const lw=wave.length?wave[wave.length-1].t:0;
     const lc=coll.length?coll[coll.length-1].t:0;
     const ref=Math.max(lw,lc);

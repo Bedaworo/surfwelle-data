@@ -31,6 +31,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from sensor_filter import plausible_keys
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
@@ -97,19 +99,27 @@ def load_manual_days(path: Path) -> dict[str, bool]:
     if not path.exists():
         return {}
     with open(path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            try:
-                dt = datetime.fromisoformat(row["time"])
-                cm = float(row["percent"])
-            except (ValueError, KeyError, TypeError):
-                continue
-            dt = dt.astimezone(BERLIN) if dt.tzinfo else dt.replace(tzinfo=BERLIN)
-            key = dt.date().isoformat()
-            # Jeder gemessene Tag landet in samples -> gilt als "durch Messung
-            # abgedeckt", auch wenn er nie surfbar war.
-            lst = samples.setdefault(key, [])
-            if SURF_VON <= dt.hour < SURF_BIS:
-                lst.append((dt, cm >= SURF_CM))
+        raw = {row["time"]: row["percent"] for row in csv.DictReader(f)
+               if row.get("time") and row.get("percent") not in (None, "")}
+    # Sondenfehler (siehe sensor_filter.py) ausblenden - die CSV bleibt roh.
+    good, bad = plausible_keys(raw)
+    if bad:
+        log.info("Plausibilitaetsfilter: %d Sondenwerte ignoriert", len(bad))
+    for t_key, val in raw.items():
+        if t_key not in good:
+            continue
+        try:
+            dt = datetime.fromisoformat(t_key)
+            cm = float(val)
+        except (ValueError, KeyError, TypeError):
+            continue
+        dt = dt.astimezone(BERLIN) if dt.tzinfo else dt.replace(tzinfo=BERLIN)
+        key = dt.date().isoformat()
+        # Jeder gemessene Tag landet in samples -> gilt als "durch Messung
+        # abgedeckt", auch wenn er nie surfbar war.
+        lst = samples.setdefault(key, [])
+        if SURF_VON <= dt.hour < SURF_BIS:
+            lst.append((dt, cm >= SURF_CM))
     return {k: longest_run_min(v) >= MIN_RUN_MIN for k, v in samples.items()}
 
 

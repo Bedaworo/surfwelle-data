@@ -58,6 +58,8 @@ BERLIN = ZoneInfo("Europe/Berlin")
 
 import requests
 
+from sensor_filter import plausible_keys
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -578,7 +580,11 @@ def main() -> int:
     # ein Problem hier soll den Rest des Laufs (Swell-Daten selbst) nicht
     # gefaehrden, die Datei bleibt dann einfach beim alten Stand.
     try:
-        slot = find_last_surf_slot(surf_merged)
+        # Sondenfehler nur fuer die Auswertung ausblenden - die CSV bleibt roh.
+        good, bad = plausible_keys(surf_merged)
+        if bad:
+            log.info("Plausibilitaetsfilter: %d Sondenwerte fuer den Slot ignoriert", len(bad))
+        slot = find_last_surf_slot({k: v for k, v in surf_merged.items() if k in good})
         with open(LAST_SLOT_JSON, "w", encoding="utf-8") as f:
             json.dump(slot, f)
         if slot:

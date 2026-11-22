@@ -406,6 +406,18 @@ const PROJ_BAND = [[1,-0.47,0.75],[2,-0.61,1.31],[3,-0.57,2.05],[4,-0.58,2.43],
 // Variante, weil ein CORS-Problem oder eine Downtime bei Open-Meteo sonst
 // nur diese eine Kachel lahmlegte, jetzt fällt sie zusammen mit dem Rest der
 // Seite unter dieselbe, bereits geprüfte Ladefunktion.
+// Nicht jeder 15-Minuten-Lauf bekommt eine Regenprognose von Open-Meteo
+// (Nov 2026: in ~18 % der Zeilen leer). Deshalb die jüngste Zeile MIT
+// Prognose nehmen, solange sie höchstens 12 h alt ist.
+function latestOutlook(coll){
+  for (let i=coll.length-1;i>=0;i--){
+    const r=coll[i];
+    if (coll[coll.length-1].t-r.t>12*3600e3) break;
+    if (r.rainStart && r.rainDays && r.rainDays.some(isFinite)) return loadOutlookFromRow(r);
+  }
+  return null;
+}
+
 function loadOutlookFromRow(lastRow){
   if (!lastRow || !lastRow.rainStart || !lastRow.rainDays) return null;
   // Mittags ansetzen statt Mitternacht: sonst kann toISOString() ueber die
@@ -517,6 +529,6 @@ if (typeof module==='object' && module.exports){
     SURF_CM, TIERS, tierOf, HOUR, SURF_VON, SURF_BIS, BIAS_CM, SEE_MAX, SEE_MIN,
     interp, waveFromFab, fabFromTue, lagHours, travel, projProb, dayKey, berlinHour, berlinMin,
     parseTime, parseCollected, parseWaveCsv, filterSensorFaults, buildForecast,
-    loadOutlookFromRow, computeOutlook, prepareData, stamp, fmtTime,
+    loadOutlookFromRow, latestOutlook, computeOutlook, prepareData, stamp, fmtTime,
   };
 }

@@ -78,6 +78,15 @@ jobs:
           slice data/collected.csv        data/recent.csv        350
           slice data/surfwelle_manual.csv data/recent_swell.csv 1100
 
+      - name: Push notifications (Probebetrieb)
+        # notify.js rechnet mit forecast.js dieselbe Prognose wie die Seite.
+        # Im Probebetrieb wird nichts verschickt - nur protokolliert in
+        # data/notify_log.jsonl, was gesendet wuerde. Node ist auf dem
+        # Ubuntu-Runner vorinstalliert. Darf den Datenlauf nie blockieren.
+        run: node notify.js --dry-run
+        continue-on-error: true
+        timeout-minutes: 2
+
       - name: Commit and push CSV
         run: |
           git config user.name "github-actions[bot]"

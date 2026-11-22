@@ -11,7 +11,7 @@ self.addEventListener('push', e => {
     tag: d.tag || 'surfwelle',          // gleiche Art ersetzt die vorige Meldung
     renotify: true,
     icon: 'icon-192.png',
-    badge: 'icon-192.png',
+    badge: 'badge-96.png',             // einfarbig weiß auf transparent - Android färbt es selbst
     data: { url: d.url || './' },
   }));
 });

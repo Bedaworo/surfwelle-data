@@ -1,6 +1,6 @@
 {
  "wave": {
-  "running": true,
+  "running": false,
   "lastStart": 1795622546093
  },
  "daily": {
@@ -11,5 +11,5 @@
   "8": "2026-11-25"
  },
  "warn": {},
- "lastRun": "2026-11-25T18:46:15.315Z"
+ "lastRun": "2026-11-25T19:01:45.075Z"
 }

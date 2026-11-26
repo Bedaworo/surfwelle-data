@@ -19,3 +19,4 @@
 {"at":"2026-11-25T07:02:23.203Z","type":"daily","text":"🌊🏄🏼⭐⭐⭐ heute zu 100 %","dry":false,"hour":8,"p":1,"hourlyOk":true,"covers":true,"runMin":360,"stars":3,"maxCm":77}
 {"at":"2026-11-25T15:32:16.314Z","type":"stop","text":"🌊😢 läuft nicht","dry":false,"cm":56}
 {"at":"2026-11-25T16:02:26.093Z","type":"start","text":"🌊🏄🏼⭐ läuft","dry":false,"cm":59,"stars":1}
+{"at":"2026-11-26T03:01:31.743Z","type":"daily-skip","text":"keine Tagesprognose","dry":false,"hour":4,"p":0.9880923566835531,"hourlyOk":false,"covers":true,"runMin":50,"stars":1,"maxCm":58}

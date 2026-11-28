@@ -33,3 +33,4 @@
 {"at":"2026-11-27T07:46:07.938Z","type":"start","text":"🌊🏄🏼⭐ läuft","dry":false,"cm":63,"stars":1}
 {"at":"2026-11-27T14:16:04.849Z","type":"stop","text":"🌊😢 läuft nicht","dry":false,"cm":49}
 {"at":"2026-11-28T03:01:27.623Z","type":"daily-skip","text":"keine Tagesprognose","dry":false,"hour":4,"p":0.9544517093218756,"hourlyOk":false,"covers":true,"runMin":0,"stars":0,"maxCm":48}
+{"at":"2026-11-28T04:01:41.898Z","type":"daily-skip","text":"keine Tagesprognose","dry":false,"hour":5,"p":0.9544517093218756,"hourlyOk":false,"covers":true,"runMin":0,"stars":0,"maxCm":48}
